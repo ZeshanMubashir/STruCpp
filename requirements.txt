@@ -1,0 +1,18 @@
+# STruC++ - IEC 61131-3 Structured Text to C++ Compiler
+# Python Dependencies
+
+# Parser library
+lark>=1.1.0
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Code quality
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+
+# Development
+setuptools>=65.0.0
+wheel>=0.38.0
