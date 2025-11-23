@@ -69,38 +69,280 @@ For each phase to be considered complete:
 - ✅ Clear understanding of MatIEC limitations
 - ✅ Realistic timeline for implementation
 
-## Phase 1: Core Frontend and Expression Subset
+## Phase 1: IEC Types, Runtime, and Library Architecture
 
 **Status**: ⏳ PENDING
 
 **Duration**: 4-6 weeks
 
-**Goal**: Implement basic compiler infrastructure with minimal but complete functionality
+**Goal**: Design and implement the foundational C++ runtime architecture that all subsequent phases will build upon
 
 ### Scope
 
-**Language Features**:
-- Elementary data types: BOOL, INT, DINT, REAL, LREAL
-- Literals: integer, real, boolean
-- Variable declarations (VAR...END_VAR)
-- Simple expressions: arithmetic (+, -, *, /), comparison (=, <>, <, >, <=, >=), logical (AND, OR, NOT)
-- Assignment statements
-- Single PROGRAM with flat variable list and statement list
+**Core Focus**: Establish the C++ runtime foundation before implementing any parsing or compilation logic. This phase is entirely about the *target* architecture (what STruC++ will generate), not the compiler itself.
 
-**Example ST Program**:
-```
-PROGRAM Test
-    VAR
-        x : INT;
-        y : INT;
-        result : BOOL;
-    END_VAR
+**Key Deliverables**:
+1. **IEC Type System** - C++ wrapper classes for all IEC 61131-3 v3 base types
+2. **Variable Forcing** - Forcing/unforcing mechanism integrated into type wrappers
+3. **Standard Library Architecture** - Design for ST-based standard library with caching
+4. **Standard Functions** - Template-based implementation for variable-argument functions
+5. **Type Conversions** - Clean architecture for IEC type conversions
+6. **Output Architecture** - Library + project output model
+
+### Detailed Scope
+
+#### 1. IEC Base Type Wrappers
+
+Design and implement `iec_types.hpp` with wrapper classes for all IEC 61131-3 v3 base types:
+
+**Elementary Types**:
+- Bit strings: BOOL, BYTE, WORD, DWORD, LWORD
+- Integers: SINT, INT, DINT, LINT, USINT, UINT, UDINT, ULINT
+- Reals: REAL, LREAL
+- Durations: TIME, LTIME
+- Date/Time: DATE, TIME_OF_DAY (TOD), DATE_AND_TIME (DT), LDATE, LTIME_OF_DAY (LTOD), LDATE_AND_TIME (LDT)
+- Strings: STRING, WSTRING, CHAR, WCHAR
+
+**Wrapper Design**:
+```cpp
+template<typename T>
+class IECVar {
+private:
+    T value_;
+    bool forced_;
+    T forced_value_;
     
-    x := 10;
-    y := 20;
-    result := x < y;
-END_PROGRAM
+public:
+    IECVar() : value_(T()), forced_(false), forced_value_(T()) {}
+    explicit IECVar(T val) : value_(val), forced_(false), forced_value_(T()) {}
+    
+    // Get value (respects forcing)
+    T get() const { return forced_ ? forced_value_ : value_; }
+    
+    // Set value (only if not forced)
+    void set(T val) { if (!forced_) value_ = val; }
+    
+    // Forcing API
+    void force(T val) { forced_ = true; forced_value_ = val; }
+    void unforce() { forced_ = false; }
+    bool is_forced() const { return forced_; }
+    
+    // Operators for natural syntax
+    IECVar& operator=(T val) { set(val); return *this; }
+    operator T() const { return get(); }
+    
+    // Arithmetic operators (for numeric types)
+    // ... template specializations for different type categories
+};
+
+// Type aliases for IEC types
+using IEC_BOOL = IECVar<bool>;
+using IEC_INT = IECVar<int16_t>;
+using IEC_DINT = IECVar<int32_t>;
+using IEC_REAL = IECVar<float>;
+using IEC_LREAL = IECVar<double>;
+// ... etc for all IEC types
 ```
+
+**Type Categories and Traits**:
+```cpp
+// Category tags for IEC type system
+struct AnyBitTag {};
+struct AnyIntTag {};
+struct AnyRealTag {};
+struct AnyNumTag {};
+struct AnyDateTag {};
+struct AnyStringTag {};
+
+// Type traits to map IEC types to categories
+template<typename T> struct IECCategory;
+template<> struct IECCategory<IEC_BOOL> { using type = AnyBitTag; };
+template<> struct IECCategory<IEC_INT> { using type = AnyIntTag; };
+template<> struct IECCategory<IEC_REAL> { using type = AnyRealTag; };
+// ... etc
+
+// Concepts for type constraints (C++20)
+template<typename T>
+concept IECAnyInt = std::is_same_v<typename IECCategory<T>::type, AnyIntTag>;
+
+template<typename T>
+concept IECAnyReal = std::is_same_v<typename IECCategory<T>::type, AnyRealTag>;
+
+template<typename T>
+concept IECAnyNum = IECAnyInt<T> || IECAnyReal<T>;
+```
+
+#### 2. Standard Library Architecture
+
+**Library Source Structure**:
+```
+lib/
+├── iec_std/              # IEC 61131-3 standard library (ST source)
+│   ├── numeric.st        # Numeric functions (ABS, SQRT, etc.)
+│   ├── bitwise.st        # Bit string functions (SHL, SHR, etc.)
+│   ├── selection.st      # Selection functions (SEL, MAX, MIN, etc.)
+│   ├── comparison.st     # Comparison functions
+│   ├── string.st         # String functions (LEN, CONCAT, etc.)
+│   ├── conversion.st     # Type conversion functions
+│   ├── timers.st         # Standard timer FBs (TON, TOF, TP)
+│   ├── counters.st       # Standard counter FBs (CTU, CTD, CTUD)
+│   └── edge.st           # Edge detection FBs (R_TRIG, F_TRIG)
+└── openplc/              # OpenPLC-specific extensions (optional)
+    └── ...
+```
+
+**Compilation Strategy**:
+- Standard library is maintained as **canonical ST source**
+- STruC++ compiles the library ST to C++ (`iec_stdlib.hpp` / `iec_stdlib.cpp`)
+- Compiled library is **cached** based on:
+  - Hash of library ST source files
+  - STruC++ compiler version
+  - Target platform / compile flags (if relevant)
+- Cache invalidation triggers:
+  - Library ST source changes
+  - Compiler version changes
+  - Manual cache clear
+
+**Cache Location** (conceptual):
+```
+~/.strucpp/cache/
+└── iec_stdlib/
+    ├── {hash}/
+    │   ├── iec_stdlib.hpp
+    │   ├── iec_stdlib.cpp
+    │   └── metadata.json
+    └── ...
+```
+
+**Shipped Artifacts** (optional for bootstrap speed):
+- STruC++ may ship precompiled C++ for the standard library
+- But the ST source remains the authoritative source of truth
+- Users can rebuild from ST if needed
+
+#### 3. Standard Functions Without Macros
+
+**Challenge**: IEC standard functions like `ADD`, `SUB`, `MAX`, `MIN` are:
+- Overloaded on many types (INT, DINT, REAL, LREAL, TIME, etc.)
+- Variadic (can take 2..N arguments)
+
+**MatIEC's Approach**: Complex preprocessor macros (avoid this!)
+
+**STruC++ Approach**: C++ variadic templates with type constraints
+
+**Example: ADD Function**:
+```cpp
+// Base case: 2 arguments
+template<IECAnyNum T>
+T ADD(const T& a, const T& b) {
+    return T(a.get() + b.get());
+}
+
+// Variadic extension: 3+ arguments
+template<IECAnyNum T, typename... Rest>
+T ADD(const T& a, const T& b, const Rest&... rest) {
+    return ADD(ADD(a, b), rest...);
+}
+```
+
+**Example: MAX Function**:
+```cpp
+template<IECAnyNum T>
+T MAX(const T& a, const T& b) {
+    return T(std::max(a.get(), b.get()));
+}
+
+template<IECAnyNum T, typename... Rest>
+T MAX(const T& a, const T& b, const Rest&... rest) {
+    return MAX(MAX(a, b), rest...);
+}
+```
+
+**Integration Options**:
+1. **Option A**: Implement these as C++ intrinsics, expose to ST as external functions
+2. **Option B**: Define ST wrapper functions that call C++ templates
+3. **Hybrid**: Core operations in C++, higher-level functions in ST
+
+**Decision for Phase 1**: Implement core variable-argument functions (ADD, SUB, MUL, DIV, MAX, MIN, etc.) as C++ templates. Higher-level functions can be defined in ST library.
+
+#### 4. Type Conversion Functions
+
+**IEC Type Conversions**: `INT_TO_REAL`, `REAL_TO_INT`, `TIME_TO_DINT`, etc.
+
+**Approach**:
+```cpp
+// Generic conversion helper
+template<typename To, typename From>
+To iec_convert(const From& src) {
+    // Handle range checking, saturation, rounding per IEC rules
+    return To(static_cast<typename To::value_type>(src.get()));
+}
+
+// Specific conversion functions
+IEC_REAL INT_TO_REAL(const IEC_INT& val) {
+    return iec_convert<IEC_REAL>(val);
+}
+
+IEC_INT REAL_TO_INT(const IEC_REAL& val) {
+    // IEC specifies truncation toward zero
+    return IEC_INT(static_cast<int16_t>(std::trunc(val.get())));
+}
+
+// Time conversions
+IEC_DINT TIME_TO_DINT(const IEC_TIME& val) {
+    // Convert time duration to milliseconds
+    return IEC_DINT(val.get().count());
+}
+```
+
+**ST Library Wrappers** (optional):
+```st
+FUNCTION INT_TO_REAL : REAL
+    VAR_INPUT IN : INT; END_VAR
+    INT_TO_REAL := REAL(IN);  (* Uses cast syntax, maps to C++ helper *)
+END_FUNCTION
+```
+
+#### 5. Output Architecture
+
+**Fixed Runtime Headers** (ship with STruC++):
+```
+include/
+├── iec_types.hpp         # All IEC type wrappers
+├── iec_traits.hpp        # Type categories and traits
+├── iec_runtime.hpp       # Core runtime functions (time, etc.)
+└── iec_intrinsics.hpp    # Intrinsic functions (ADD, MAX, etc.)
+```
+
+**Cached Standard Library** (compiled from ST):
+```
+~/.strucpp/cache/iec_stdlib/{hash}/
+├── iec_stdlib.hpp        # Declarations of all standard functions/FBs
+└── iec_stdlib.cpp        # Implementations
+```
+
+**Per-Project Output**:
+```
+project.cpp               # Generated from user's ST code
+```
+
+**Compilation Model**:
+```bash
+# STruC++ generates project.cpp from user's ST
+strucpp compile program.st -o project.cpp
+
+# User compiles with:
+g++ -I/path/to/strucpp/include \
+    -I~/.strucpp/cache/iec_stdlib/{hash} \
+    project.cpp \
+    ~/.strucpp/cache/iec_stdlib/{hash}/iec_stdlib.cpp \
+    -o program
+```
+
+**Benefits**:
+- No duplicate IEC type declarations
+- Standard library compiled once, reused across projects
+- Clean separation: runtime (fixed) vs library (cached) vs project (generated)
+- Easy to integrate with build systems
 
 ### Deliverables
 
@@ -110,71 +352,133 @@ END_PROGRAM
 - Testing framework (pytest configuration)
 - CI/CD pipeline (GitHub Actions)
 
-**Frontend**:
-- Lark grammar for expression subset
-- Lexer and parser implementation
-- AST node classes for expressions and statements
-- Source location tracking
+**C++ Runtime Headers**:
+- `iec_types.hpp` - All IEC type wrappers with forcing support
+- `iec_traits.hpp` - Type categories and traits
+- `iec_runtime.hpp` - Core runtime functions
+- `iec_intrinsics.hpp` - Variable-argument standard functions
 
-**Semantic Analysis**:
-- Symbol table implementation
-- Type inference for literals and expressions
-- Type checking for assignments and operators
-- Basic error reporting with source locations
+**Standard Library (ST Source)**:
+- Directory structure under `lib/iec_std/`
+- ST source files for standard functions and FBs
+- Documentation of library organization
 
-**IR and Backend**:
-- IR node classes for expressions and assignments
-- C++ runtime library (IECVar template, basic types)
-- C++ code generator for expressions and assignments
-- Line mapping implementation
+**Library Cache Design**:
+- Cache directory structure
+- Metadata format (JSON)
+- Cache invalidation logic (documented, not necessarily implemented)
+
+**Documentation**:
+- Detailed design document for IEC types (extend CPP_RUNTIME.md)
+- Library architecture document
+- Standard function implementation guide
+- Type conversion rules and semantics
 
 **Testing**:
-- Unit tests for each compiler pass
-- Golden file tests (ST input → expected C++ output)
-- Runtime tests (compile and execute generated C++)
+- Unit tests for IEC type wrappers
+- Tests for forcing/unforcing behavior
+- Tests for standard functions (ADD, MAX, etc.)
+- Tests for type conversions
+- Compilation tests (generated C++ compiles)
 
 ### Success Criteria
 
-- ✅ Can parse simple programs with expressions and assignments
-- ✅ Type checking correctly identifies type errors
+- ✅ All IEC 61131-3 v3 base types have C++ wrapper classes
+- ✅ Forcing/unforcing mechanism works correctly
+- ✅ Variable-argument functions (ADD, MAX, etc.) work with templates
+- ✅ Type conversions follow IEC semantics
+- ✅ Standard library directory structure is established
+- ✅ Cache design is documented and validated
 - ✅ Generated C++ compiles with g++/clang++
-- ✅ Generated C++ produces correct results when executed
-- ✅ Line mapping is accurate (1:1 for simple statements)
 - ✅ Test coverage >90% for implemented features
-- ✅ All golden file tests pass
+- ✅ Documentation is comprehensive and clear
 
 ### Validation Examples
 
-**Test 1: Basic Arithmetic**
-```
-PROGRAM Arithmetic
-    VAR x, y, z : INT; END_VAR
-    x := 10;
-    y := 20;
-    z := x + y;
-END_PROGRAM
-```
-Expected: z = 30
+**Test 1: IEC Type Wrapper**
+```cpp
+// Test forcing behavior
+IEC_INT x(10);
+assert(x.get() == 10);
 
-**Test 2: Boolean Logic**
-```
-PROGRAM Logic
-    VAR a, b, result : BOOL; END_VAR
-    a := TRUE;
-    b := FALSE;
-    result := a AND NOT b;
-END_PROGRAM
-```
-Expected: result = TRUE
+x.force(99);
+assert(x.get() == 99);
+assert(x.is_forced());
 
-**Test 3: Type Error Detection**
+x.set(20);  // Should have no effect
+assert(x.get() == 99);
+
+x.unforce();
+assert(x.get() == 10);  // Back to original value
 ```
-PROGRAM TypeError
-    VAR x : INT; b : BOOL; END_VAR
-    x := TRUE;  (* Should error: cannot assign BOOL to INT *)
-END_PROGRAM
+
+**Test 2: Variable-Argument Function**
+```cpp
+// Test ADD with different argument counts
+IEC_INT a(10), b(20), c(30), d(40);
+
+auto result2 = ADD(a, b);
+assert(result2.get() == 30);
+
+auto result3 = ADD(a, b, c);
+assert(result3.get() == 60);
+
+auto result4 = ADD(a, b, c, d);
+assert(result4.get() == 100);
 ```
-Expected: Compilation error with clear message
+
+**Test 3: Type Conversion**
+```cpp
+// Test INT_TO_REAL conversion
+IEC_INT i(42);
+IEC_REAL r = INT_TO_REAL(i);
+assert(r.get() == 42.0f);
+
+// Test REAL_TO_INT conversion (truncation)
+IEC_REAL r2(3.7f);
+IEC_INT i2 = REAL_TO_INT(r2);
+assert(i2.get() == 3);  // Truncates toward zero
+```
+
+**Test 4: Library Cache Concept**
+```python
+# Conceptual test (implementation in later phase)
+def test_library_cache():
+    # Compile standard library from ST
+    lib_hash = compile_stdlib("lib/iec_std/")
+    
+    # Check cache exists
+    assert cache_exists(lib_hash)
+    
+    # Recompile should use cache
+    lib_hash2 = compile_stdlib("lib/iec_std/")
+    assert lib_hash == lib_hash2
+    assert cache_was_used()
+    
+    # Modify library, should invalidate cache
+    modify_file("lib/iec_std/numeric.st")
+    lib_hash3 = compile_stdlib("lib/iec_std/")
+    assert lib_hash3 != lib_hash
+```
+
+### Notes
+
+**What Phase 1 Does NOT Include**:
+- ❌ No Lark parser or grammar
+- ❌ No AST or semantic analysis
+- ❌ No code generation from ST
+- ❌ No actual compilation of ST programs
+
+**Why This Order?**:
+1. The runtime is the **foundation** - we need to know what we're generating before we can generate it
+2. Decisions about type wrappers, forcing, and standard functions affect the compiler design
+3. Having the runtime lets us write **manual C++ tests** to validate behavior before the compiler exists
+4. The standard library architecture must be designed before we implement library compilation
+
+**Relationship to Phase 2**:
+- Phase 2 will implement the parser and compiler that **generates** code using this runtime
+- Phase 2 will implement the library cache mechanism
+- Phase 2 will compile ST programs that use the types and functions defined here
 
 ## Phase 2: Functions and Function Calls
 

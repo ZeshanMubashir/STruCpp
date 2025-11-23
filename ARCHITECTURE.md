@@ -792,13 +792,19 @@ counter = counter + 1;
 
 ## C++ Runtime Library
 
-The C++ runtime library provides:
+The C++ runtime library provides the foundation for all generated code. This is the **first priority** in the implementation plan (Phase 1) - we need to design and implement the runtime architecture before building the compiler that generates code using it.
 
-1. **IEC Type Wrappers** - Classes for BOOL, INT, REAL, TIME, etc.
-2. **Standard Functions** - IEC 61131-3 standard function library
-3. **Utility Functions** - Type conversions, string operations, etc.
+**Phase 1 Focus**: Design and implement the C++ runtime foundation:
+1. **IEC Type Wrappers** - All IEC 61131-3 v3 base types with forcing support
+2. **Type Categories and Traits** - Type system for function overloading (ANY_INT, ANY_REAL, etc.)
+3. **Standard Library Architecture** - ST-based library with caching strategy
+4. **Variable-Argument Functions** - Template-based implementation without macros (ADD, MAX, etc.)
+5. **Type Conversion Functions** - Clean architecture for IEC type conversions
+6. **Output Architecture** - Library + project model for modular compilation
 
-See [CPP_RUNTIME.md](CPP_RUNTIME.md) for detailed design.
+See [CPP_RUNTIME.md](CPP_RUNTIME.md) for comprehensive design documentation covering all aspects of the runtime architecture.
+
+See [IMPLEMENTATION_PHASES.md](IMPLEMENTATION_PHASES.md) for the phased development plan, where **Phase 1** focuses entirely on designing and implementing the C++ runtime foundation before any parsing or compilation work begins in Phase 2.
 
 ### IEC Type Wrapper Design
 
