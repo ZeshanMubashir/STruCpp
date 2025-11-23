@@ -7,12 +7,17 @@ This document describes the design of the C++ runtime library that supports code
 1. [Overview](#overview)
 2. [Design Goals](#design-goals)
 3. [IEC Type Wrappers](#iec-type-wrappers)
-4. [Standard Functions](#standard-functions)
-5. [Standard Function Blocks](#standard-function-blocks)
-6. [Memory Management](#memory-management)
-7. [Variable Forcing](#variable-forcing)
-8. [Performance Considerations](#performance-considerations)
-9. [OpenPLC Integration](#openplc-integration)
+4. [Type Categories and Traits](#type-categories-and-traits)
+5. [Standard Library Architecture](#standard-library-architecture)
+6. [Standard Functions](#standard-functions)
+7. [Variable-Argument Functions Without Macros](#variable-argument-functions-without-macros)
+8. [Type Conversion Functions](#type-conversion-functions)
+9. [Standard Function Blocks](#standard-function-blocks)
+10. [Output Architecture](#output-architecture)
+11. [Memory Management](#memory-management)
+12. [Variable Forcing](#variable-forcing)
+13. [Performance Considerations](#performance-considerations)
+14. [OpenPLC Integration](#openplc-integration)
 
 ## Overview
 
@@ -415,6 +420,342 @@ enum class TrafficLight : int {
 using IEC_TrafficLight = IECVar<TrafficLight>;
 ```
 
+## Type Categories and Traits
+
+### IEC Type Categories
+
+IEC 61131-3 defines type categories (ANY_BIT, ANY_INT, ANY_REAL, ANY_NUM, etc.) that are used for function overloading and type constraints. We implement these using C++ type traits and concepts.
+
+**Category Tags**:
+```cpp
+// Category tags for IEC type system
+struct AnyBitTag {};
+struct AnyIntTag {};
+struct AnyRealTag {};
+struct AnyNumTag {};
+struct AnyDateTag {};
+struct AnyStringTag {};
+```
+
+**Type Traits**:
+```cpp
+// Type traits to map IEC types to categories
+template<typename T> struct IECCategory;
+
+// Bit string types
+template<> struct IECCategory<IEC_BOOL> { using type = AnyBitTag; };
+template<> struct IECCategory<IEC_BYTE> { using type = AnyBitTag; };
+template<> struct IECCategory<IEC_WORD> { using type = AnyBitTag; };
+template<> struct IECCategory<IEC_DWORD> { using type = AnyBitTag; };
+template<> struct IECCategory<IEC_LWORD> { using type = AnyBitTag; };
+
+// Integer types
+template<> struct IECCategory<IEC_SINT> { using type = AnyIntTag; };
+template<> struct IECCategory<IEC_INT> { using type = AnyIntTag; };
+template<> struct IECCategory<IEC_DINT> { using type = AnyIntTag; };
+template<> struct IECCategory<IEC_LINT> { using type = AnyIntTag; };
+template<> struct IECCategory<IEC_USINT> { using type = AnyIntTag; };
+template<> struct IECCategory<IEC_UINT> { using type = AnyIntTag; };
+template<> struct IECCategory<IEC_UDINT> { using type = AnyIntTag; };
+template<> struct IECCategory<IEC_ULINT> { using type = AnyIntTag; };
+
+// Real types
+template<> struct IECCategory<IEC_REAL> { using type = AnyRealTag; };
+template<> struct IECCategory<IEC_LREAL> { using type = AnyRealTag; };
+
+// Date/Time types
+template<> struct IECCategory<IEC_TIME> { using type = AnyDateTag; };
+template<> struct IECCategory<IEC_DATE> { using type = AnyDateTag; };
+template<> struct IECCategory<IEC_TIME_OF_DAY> { using type = AnyDateTag; };
+template<> struct IECCategory<IEC_DATE_AND_TIME> { using type = AnyDateTag; };
+
+// String types
+template<> struct IECCategory<IEC_STRING> { using type = AnyStringTag; };
+```
+
+**C++20 Concepts** (preferred for modern C++):
+```cpp
+// Concepts for type constraints
+template<typename T>
+concept IECAnyBit = std::is_same_v<typename IECCategory<T>::type, AnyBitTag>;
+
+template<typename T>
+concept IECAnyInt = std::is_same_v<typename IECCategory<T>::type, AnyIntTag>;
+
+template<typename T>
+concept IECAnyReal = std::is_same_v<typename IECCategory<T>::type, AnyRealTag>;
+
+template<typename T>
+concept IECAnyNum = IECAnyInt<T> || IECAnyReal<T>;
+
+template<typename T>
+concept IECAnyDate = std::is_same_v<typename IECCategory<T>::type, AnyDateTag>;
+
+template<typename T>
+concept IECAnyString = std::is_same_v<typename IECCategory<T>::type, AnyStringTag>;
+```
+
+**C++17 SFINAE Alternative** (for compatibility):
+```cpp
+// SFINAE-based type constraints for C++17
+template<typename T>
+using enable_if_any_int = std::enable_if_t<
+    std::is_same_v<typename IECCategory<T>::type, AnyIntTag>
+>;
+
+template<typename T>
+using enable_if_any_real = std::enable_if_t<
+    std::is_same_v<typename IECCategory<T>::type, AnyRealTag>
+>;
+
+template<typename T>
+using enable_if_any_num = std::enable_if_t<
+    std::is_same_v<typename IECCategory<T>::type, AnyIntTag> ||
+    std::is_same_v<typename IECCategory<T>::type, AnyRealTag>
+>;
+```
+
+### Usage in Function Overloading
+
+Type categories enable clean function overloading:
+
+```cpp
+// Function that works with any numeric type
+template<IECAnyNum T>
+T ABS(const T& value) {
+    return T(std::abs(value.get()));
+}
+
+// Function that works with any integer type
+template<IECAnyInt T>
+T SHL(const T& value, IEC_INT n) {
+    return T(value.get() << n.get());
+}
+
+// Function that works with any real type
+template<IECAnyReal T>
+T SQRT(const T& value) {
+    return T(std::sqrt(value.get()));
+}
+```
+
+## Standard Library Architecture
+
+### Design Philosophy
+
+**Canonical Source: ST, Not C++**
+
+The IEC 61131-3 standard library is maintained as **ST source code**, not C++. This provides:
+- **Clarity**: Library functions are defined in the same language users write
+- **Maintainability**: No need to maintain parallel C++ implementations
+- **Correctness**: Library behavior matches IEC semantics by construction
+- **Flexibility**: Users can inspect and understand library implementation
+
+**Compilation Strategy: Compile Once, Cache, Reuse**
+
+The standard library is compiled from ST to C++ once, then cached and reused across all projects:
+1. STruC++ compiles `lib/iec_std/*.st` to C++ (`iec_stdlib.hpp` / `iec_stdlib.cpp`)
+2. Compiled library is cached based on:
+   - Hash of library ST source files
+   - STruC++ compiler version
+   - Target platform / compile flags (if relevant)
+3. Subsequent project compilations reuse the cached library
+4. Cache is invalidated when library ST or compiler version changes
+
+**Core Intrinsics: C++ Templates**
+
+A small set of "core intrinsics" are implemented directly in C++ as templates:
+- Variable-argument functions (ADD, SUB, MUL, DIV, MAX, MIN, etc.)
+- Low-level operations that need template metaprogramming
+- Performance-critical operations
+
+These intrinsics are exposed to ST as external functions that the library can call.
+
+### Library Directory Structure
+
+```
+lib/
+├── iec_std/                    # IEC 61131-3 standard library (ST source)
+│   ├── README.md               # Library documentation
+│   ├── numeric.st              # Numeric functions (ABS, SQRT, LN, EXP, etc.)
+│   ├── bitwise.st              # Bit string functions (SHL, SHR, ROL, ROR, etc.)
+│   ├── selection.st            # Selection functions (SEL, LIMIT, MUX, etc.)
+│   ├── comparison.st           # Comparison functions
+│   ├── string.st               # String functions (LEN, CONCAT, LEFT, RIGHT, etc.)
+│   ├── conversion.st           # Type conversion functions (INT_TO_REAL, etc.)
+│   ├── timers.st               # Standard timer FBs (TON, TOF, TP)
+│   ├── counters.st             # Standard counter FBs (CTU, CTD, CTUD)
+│   ├── edge.st                 # Edge detection FBs (R_TRIG, F_TRIG)
+│   └── bistable.st             # Bistable FBs (SR, RS)
+└── openplc/                    # OpenPLC-specific extensions (optional)
+    ├── README.md
+    └── ...
+```
+
+### Library Cache Structure
+
+**Cache Location**:
+```
+~/.strucpp/cache/
+└── iec_stdlib/
+    ├── {hash1}/
+    │   ├── iec_stdlib.hpp      # Generated C++ header
+    │   ├── iec_stdlib.cpp      # Generated C++ implementation
+    │   └── metadata.json       # Cache metadata
+    ├── {hash2}/
+    │   └── ...
+    └── current -> {hash1}      # Symlink to current version
+```
+
+**Metadata Format** (`metadata.json`):
+```json
+{
+  "version": "1.0.0",
+  "compiler_version": "0.1.0",
+  "source_hash": "a1b2c3d4e5f6...",
+  "source_files": [
+    "lib/iec_std/numeric.st",
+    "lib/iec_std/bitwise.st",
+    ...
+  ],
+  "compile_timestamp": "2025-11-23T05:40:00Z",
+  "target_platform": "linux-x86_64",
+  "compile_flags": []
+}
+```
+
+**Cache Invalidation Triggers**:
+1. **Library ST source changes**: Hash of source files changes
+2. **Compiler version changes**: STruC++ version changes
+3. **Target platform changes**: Cross-compilation to different platform
+4. **Manual cache clear**: User runs `strucpp cache clear`
+
+### Shipped Artifacts (Optional)
+
+For bootstrap speed, STruC++ may ship precompiled C++ for the standard library:
+
+```
+strucpp/
+└── runtime/
+    └── precompiled/
+        └── iec_stdlib/
+            ├── iec_stdlib.hpp
+            └── iec_stdlib.cpp
+```
+
+**Usage**:
+- On first run, if cache is empty, use precompiled library
+- User can rebuild from ST source if needed: `strucpp rebuild-stdlib`
+- Precompiled library is versioned with STruC++ release
+
+### Library Compilation Workflow
+
+**Initial Compilation**:
+```bash
+# User installs STruC++
+$ pip install strucpp
+
+# First project compilation
+$ strucpp compile program.st
+
+# STruC++ detects no cached library
+# Compiles lib/iec_std/*.st to C++
+# Caches result in ~/.strucpp/cache/iec_stdlib/{hash}/
+# Compiles user's program.st using cached library
+```
+
+**Subsequent Compilations**:
+```bash
+# User compiles another project
+$ strucpp compile another_program.st
+
+# STruC++ finds cached library (hash matches)
+# Reuses cached iec_stdlib.hpp / iec_stdlib.cpp
+# Only compiles user's another_program.st
+```
+
+**Cache Invalidation**:
+```bash
+# User updates STruC++ to new version
+$ pip install --upgrade strucpp
+
+# Next compilation
+$ strucpp compile program.st
+
+# STruC++ detects compiler version changed
+# Recompiles lib/iec_std/*.st with new compiler
+# Caches result in new hash directory
+# Compiles user's program.st using new cached library
+```
+
+### Integration with ST Library Functions
+
+**Example: Numeric Function in ST Library**:
+
+`lib/iec_std/numeric.st`:
+```st
+FUNCTION ABS_INT : INT
+    VAR_INPUT IN : INT; END_VAR
+    IF IN < 0 THEN
+        ABS_INT := -IN;
+    ELSE
+        ABS_INT := IN;
+    END_IF
+END_FUNCTION
+
+FUNCTION ABS_REAL : REAL
+    VAR_INPUT IN : REAL; END_VAR
+    IF IN < 0.0 THEN
+        ABS_REAL := -IN;
+    ELSE
+        ABS_REAL := IN;
+    END_IF
+END_FUNCTION
+```
+
+**Generated C++** (`iec_stdlib.cpp`):
+```cpp
+IEC_INT ABS_INT(IEC_INT IN) {
+    IEC_INT result;
+    if (IN.get() < 0) {
+        result = IEC_INT(-IN.get());
+    } else {
+        result = IN;
+    }
+    return result;
+}
+
+IEC_REAL ABS_REAL(IEC_REAL IN) {
+    IEC_REAL result;
+    if (IN.get() < 0.0f) {
+        result = IEC_REAL(-IN.get());
+    } else {
+        result = IN;
+    }
+    return result;
+}
+```
+
+**Alternative: Use C++ Intrinsic**:
+
+For performance-critical functions, the ST library can call C++ intrinsics:
+
+`lib/iec_std/numeric.st`:
+```st
+FUNCTION ABS_INT : INT
+    VAR_INPUT IN : INT; END_VAR
+    ABS_INT := __INTRINSIC_ABS_INT(IN);  (* Calls C++ template *)
+END_FUNCTION
+```
+
+`iec_intrinsics.hpp`:
+```cpp
+template<IECAnyInt T>
+T __INTRINSIC_ABS(const T& value) {
+    return T(std::abs(value.get()));
+}
+```
+
 ## Standard Functions
 
 ### Numeric Functions
@@ -498,6 +839,353 @@ inline T LIMIT(T min_val, T value, T max_val) noexcept {
 }
 ```
 
+## Variable-Argument Functions Without Macros
+
+### The Problem
+
+IEC 61131-3 standard functions like `ADD`, `SUB`, `MUL`, `DIV`, `MAX`, `MIN` are:
+1. **Overloaded on many types** (INT, DINT, REAL, LREAL, TIME, etc.)
+2. **Variadic** (can take 2..N arguments)
+
+**MatIEC's Approach**: Complex preprocessor macros that generate code for all combinations. This is:
+- Hard to maintain
+- Hard to debug
+- Obscures the code
+- Prone to errors
+
+**STruC++ Approach**: C++ variadic templates with type constraints. This is:
+- Clean and maintainable
+- Type-safe
+- Debuggable
+- Leverages modern C++ features
+
+### Implementation Pattern
+
+**Base Case + Recursive Variadic**:
+
+```cpp
+// Base case: 2 arguments
+template<IECAnyNum T>
+T ADD(const T& a, const T& b) {
+    return T(a.get() + b.get());
+}
+
+// Recursive case: 3+ arguments
+template<IECAnyNum T, typename... Rest>
+T ADD(const T& a, const T& b, const Rest&... rest) {
+    return ADD(ADD(a, b), rest...);
+}
+```
+
+**How It Works**:
+```cpp
+// User writes in ST:
+result := ADD(a, b, c, d);
+
+// STruC++ generates:
+result = ADD(a, b, c, d);
+
+// C++ compiler expands:
+ADD(a, b, c, d)
+  → ADD(ADD(a, b), c, d)
+  → ADD(ADD(ADD(a, b), c), d)
+  → ADD(ADD(ADD(a, b), c), d)  // Final evaluation
+```
+
+### Complete Examples
+
+**Arithmetic Functions**:
+```cpp
+// ADD - Addition (extensible)
+template<IECAnyNum T>
+T ADD(const T& a, const T& b) {
+    return T(a.get() + b.get());
+}
+
+template<IECAnyNum T, typename... Rest>
+T ADD(const T& a, const T& b, const Rest&... rest) {
+    return ADD(ADD(a, b), rest...);
+}
+
+// SUB - Subtraction (2 arguments only per IEC spec)
+template<IECAnyNum T>
+T SUB(const T& a, const T& b) {
+    return T(a.get() - b.get());
+}
+
+// MUL - Multiplication (extensible)
+template<IECAnyNum T>
+T MUL(const T& a, const T& b) {
+    return T(a.get() * b.get());
+}
+
+template<IECAnyNum T, typename... Rest>
+T MUL(const T& a, const T& b, const Rest&... rest) {
+    return MUL(MUL(a, b), rest...);
+}
+
+// DIV - Division (2 arguments only per IEC spec)
+template<IECAnyNum T>
+T DIV(const T& a, const T& b) {
+    return T(a.get() / b.get());
+}
+```
+
+**Selection Functions**:
+```cpp
+// MAX - Maximum (extensible)
+template<IECAnyNum T>
+T MAX(const T& a, const T& b) {
+    return (a.get() > b.get()) ? a : b;
+}
+
+template<IECAnyNum T, typename... Rest>
+T MAX(const T& a, const T& b, const Rest&... rest) {
+    return MAX(MAX(a, b), rest...);
+}
+
+// MIN - Minimum (extensible)
+template<IECAnyNum T>
+T MIN(const T& a, const T& b) {
+    return (a.get() < b.get()) ? a : b;
+}
+
+template<IECAnyNum T, typename... Rest>
+T MIN(const T& a, const T& b, const Rest&... rest) {
+    return MIN(MIN(a, b), rest...);
+}
+```
+
+**Bitwise Functions** (for integer types):
+```cpp
+// AND - Bitwise AND (extensible)
+template<IECAnyInt T>
+T AND(const T& a, const T& b) {
+    return T(a.get() & b.get());
+}
+
+template<IECAnyInt T, typename... Rest>
+T AND(const T& a, const T& b, const Rest&... rest) {
+    return AND(AND(a, b), rest...);
+}
+
+// OR - Bitwise OR (extensible)
+template<IECAnyInt T>
+T OR(const T& a, const T& b) {
+    return T(a.get() | b.get());
+}
+
+template<IECAnyInt T, typename... Rest>
+T OR(const T& a, const T& b, const Rest&... rest) {
+    return OR(OR(a, b), rest...);
+}
+
+// XOR - Bitwise XOR (extensible)
+template<IECAnyInt T>
+T XOR(const T& a, const T& b) {
+    return T(a.get() ^ b.get());
+}
+
+template<IECAnyInt T, typename... Rest>
+T XOR(const T& a, const T& b, const Rest&... rest) {
+    return XOR(XOR(a, b), rest...);
+}
+```
+
+### Type Safety
+
+The type constraint (e.g., `IECAnyNum`) ensures compile-time type safety:
+
+```cpp
+// Valid: All arguments are numeric types
+IEC_INT a(10), b(20), c(30);
+auto result = ADD(a, b, c);  // OK
+
+// Invalid: Mixing incompatible types
+IEC_INT x(10);
+IEC_STRING s("hello");
+auto bad = ADD(x, s);  // Compile error: IEC_STRING doesn't satisfy IECAnyNum
+```
+
+### Performance
+
+With optimization enabled (`-O2` or `-O3`), the compiler:
+1. Inlines all template instantiations
+2. Eliminates temporary objects
+3. Generates code equivalent to hand-written arithmetic
+
+**Example**:
+```cpp
+// ST code:
+result := ADD(a, b, c, d);
+
+// Generated C++ (before optimization):
+result = ADD(ADD(ADD(a, b), c), d);
+
+// After optimization (equivalent to):
+result = IEC_INT(a.get() + b.get() + c.get() + d.get());
+```
+
+### Advantages Over Macros
+
+| Aspect | MatIEC Macros | STruC++ Templates |
+|--------|---------------|-------------------|
+| **Type Safety** | No (preprocessor) | Yes (compile-time) |
+| **Debuggability** | Poor (macro expansion) | Good (normal C++) |
+| **Error Messages** | Cryptic | Clear |
+| **Maintainability** | Low | High |
+| **Code Size** | Large (all combinations) | Small (instantiated on use) |
+| **Performance** | Same | Same |
+
+## Type Conversion Functions
+
+### IEC Type Conversion Rules
+
+IEC 61131-3 defines explicit type conversion functions for all type pairs:
+- `INT_TO_REAL`, `REAL_TO_INT`
+- `DINT_TO_REAL`, `REAL_TO_DINT`
+- `TIME_TO_DINT`, `DINT_TO_TIME`
+- `BOOL_TO_INT`, `INT_TO_BOOL`
+- etc. (hundreds of combinations)
+
+**Conversion Semantics**:
+- **Numeric conversions**: May lose precision or overflow
+- **Real to integer**: Truncate toward zero (not round)
+- **Integer to real**: Exact if within range
+- **Time conversions**: Convert to/from milliseconds
+- **Bool conversions**: FALSE=0, TRUE=1 (or non-zero)
+
+### Implementation Strategy
+
+**Generic Conversion Template**:
+```cpp
+// Generic conversion helper
+template<typename To, typename From>
+To iec_convert(const From& src) {
+    using ToValueType = typename To::value_type;
+    using FromValueType = typename From::value_type;
+    
+    // Handle special cases (overflow, saturation, rounding)
+    // For now, simple cast:
+    return To(static_cast<ToValueType>(src.get()));
+}
+```
+
+**Specific Conversion Functions**:
+```cpp
+// Integer to Real conversions
+IEC_REAL INT_TO_REAL(const IEC_INT& val) {
+    return IEC_REAL(static_cast<float>(val.get()));
+}
+
+IEC_LREAL INT_TO_LREAL(const IEC_INT& val) {
+    return IEC_LREAL(static_cast<double>(val.get()));
+}
+
+IEC_REAL DINT_TO_REAL(const IEC_DINT& val) {
+    return IEC_REAL(static_cast<float>(val.get()));
+}
+
+// Real to Integer conversions (truncate toward zero)
+IEC_INT REAL_TO_INT(const IEC_REAL& val) {
+    return IEC_INT(static_cast<int16_t>(std::trunc(val.get())));
+}
+
+IEC_DINT REAL_TO_DINT(const IEC_REAL& val) {
+    return IEC_DINT(static_cast<int32_t>(std::trunc(val.get())));
+}
+
+IEC_INT LREAL_TO_INT(const IEC_LREAL& val) {
+    return IEC_INT(static_cast<int16_t>(std::trunc(val.get())));
+}
+
+// Time conversions (TIME stored as milliseconds)
+IEC_DINT TIME_TO_DINT(const IEC_TIME& val) {
+    return IEC_DINT(static_cast<int32_t>(val.get()));
+}
+
+IEC_TIME DINT_TO_TIME(const IEC_DINT& val) {
+    return IEC_TIME(static_cast<int64_t>(val.get()));
+}
+
+// Bool conversions
+IEC_INT BOOL_TO_INT(const IEC_BOOL& val) {
+    return IEC_INT(val.get() ? 1 : 0);
+}
+
+IEC_BOOL INT_TO_BOOL(const IEC_INT& val) {
+    return IEC_BOOL(val.get() != 0);
+}
+
+// Integer size conversions
+IEC_DINT INT_TO_DINT(const IEC_INT& val) {
+    return IEC_DINT(static_cast<int32_t>(val.get()));
+}
+
+IEC_INT DINT_TO_INT(const IEC_DINT& val) {
+    // May overflow - IEC doesn't specify behavior
+    return IEC_INT(static_cast<int16_t>(val.get()));
+}
+```
+
+### Overflow and Range Handling
+
+**Options for Overflow**:
+1. **Wrap (modulo)**: Default C++ behavior
+2. **Saturate**: Clamp to min/max of target type
+3. **Error**: Throw exception or set error flag
+
+**IEC Specification**: Doesn't mandate specific behavior for overflow. STruC++ chooses **wrap** for simplicity and performance.
+
+**Saturation Example** (if desired):
+```cpp
+IEC_INT DINT_TO_INT_SAT(const IEC_DINT& val) {
+    int32_t v = val.get();
+    if (v > INT16_MAX) return IEC_INT(INT16_MAX);
+    if (v < INT16_MIN) return IEC_INT(INT16_MIN);
+    return IEC_INT(static_cast<int16_t>(v));
+}
+```
+
+### ST Library Wrappers (Optional)
+
+Conversion functions can be defined in the ST library for consistency:
+
+`lib/iec_std/conversion.st`:
+```st
+FUNCTION INT_TO_REAL : REAL
+    VAR_INPUT IN : INT; END_VAR
+    INT_TO_REAL := REAL(IN);  (* Uses cast syntax *)
+END_FUNCTION
+
+FUNCTION REAL_TO_INT : INT
+    VAR_INPUT IN : REAL; END_VAR
+    REAL_TO_INT := INT(IN);  (* Uses cast syntax *)
+END_FUNCTION
+```
+
+STruC++ maps ST cast syntax `REAL(x)` to the appropriate C++ conversion function.
+
+### Code Generation
+
+**ST Code**:
+```st
+VAR
+    i : INT := 42;
+    r : REAL;
+END_VAR
+
+r := INT_TO_REAL(i);
+```
+
+**Generated C++**:
+```cpp
+IEC_INT i(42);
+IEC_REAL r;
+
+r = INT_TO_REAL(i);
+```
+
 ### String Functions
 
 ```cpp
@@ -530,6 +1218,269 @@ template<typename... Args>
 inline IEC_STRING CONCAT(const IEC_STRING& first, Args... args) noexcept {
     return CONCAT(first, CONCAT(args...));
 }
+```
+
+## Output Architecture
+
+### Design: Library + Project Model
+
+STruC++ generates C++ code using a modular architecture that separates:
+1. **Fixed Runtime Headers** - Ship with STruC++, never change per project
+2. **Cached Standard Library** - Compiled once from ST, reused across projects
+3. **Per-Project Output** - Generated from user's ST code
+
+This architecture avoids:
+- ❌ Duplicate IEC type declarations across files
+- ❌ Recompiling standard library for every project
+- ❌ Monolithic single-file output that's hard to manage
+
+### File Organization
+
+**Fixed Runtime Headers** (ship with STruC++):
+```
+/usr/local/include/strucpp/    # Or Python site-packages/strucpp/include/
+├── iec_types.hpp              # All IEC type wrappers (IEC_INT, IEC_BOOL, etc.)
+├── iec_traits.hpp             # Type categories and traits (AnyIntTag, etc.)
+├── iec_runtime.hpp            # Core runtime functions (time, I/O, etc.)
+└── iec_intrinsics.hpp         # Variable-argument standard functions (ADD, MAX, etc.)
+```
+
+**Cached Standard Library** (compiled from ST):
+```
+~/.strucpp/cache/iec_stdlib/{hash}/
+├── iec_stdlib.hpp             # Declarations of all standard functions/FBs
+└── iec_stdlib.cpp             # Implementations
+```
+
+**Per-Project Output** (generated from user's ST):
+```
+project_output/
+├── program.hpp                # Declarations of user's POUs
+└── program.cpp                # Implementations
+```
+
+### Compilation Flow
+
+**Step 1: Compile Standard Library** (once, cached):
+```bash
+# STruC++ compiles lib/iec_std/*.st to C++
+$ strucpp compile-stdlib
+
+# Generates:
+~/.strucpp/cache/iec_stdlib/{hash}/iec_stdlib.hpp
+~/.strucpp/cache/iec_stdlib/{hash}/iec_stdlib.cpp
+```
+
+**Step 2: Compile User Project**:
+```bash
+# User compiles their ST program
+$ strucpp compile myprogram.st -o myprogram.cpp
+
+# Generates:
+myprogram.cpp  # Includes runtime headers and stdlib header
+```
+
+**Step 3: Build Executable**:
+```bash
+# User builds with g++
+$ g++ -std=c++20 \
+      -I/usr/local/include/strucpp \
+      -I~/.strucpp/cache/iec_stdlib/{hash} \
+      myprogram.cpp \
+      ~/.strucpp/cache/iec_stdlib/{hash}/iec_stdlib.cpp \
+      -o myprogram
+
+# Or use STruC++ build command:
+$ strucpp build myprogram.st -o myprogram
+```
+
+### Generated Code Structure
+
+**Example User ST Program**:
+```st
+PROGRAM MyProgram
+    VAR
+        counter : INT := 0;
+        timer : TON;
+        output : BOOL;
+    END_VAR
+    
+    timer(IN := TRUE, PT := T#5s);
+    output := timer.Q;
+    counter := counter + 1;
+END_PROGRAM
+```
+
+**Generated C++ (`myprogram.cpp`)**:
+```cpp
+// Include fixed runtime headers
+#include <strucpp/iec_types.hpp>
+#include <strucpp/iec_traits.hpp>
+#include <strucpp/iec_runtime.hpp>
+#include <strucpp/iec_intrinsics.hpp>
+
+// Include cached standard library
+#include <iec_stdlib.hpp>
+
+// User's program class
+class MyProgram {
+public:
+    // Constructor
+    MyProgram() : counter(0), timer(), output(false) {}
+    
+    // Execution method (called each scan cycle)
+    void operator()() {
+        // Line 10: timer(IN := TRUE, PT := T#5s);
+        timer.IN = IEC_BOOL(true);
+        timer.PT = IEC_TIME(5000);  // 5 seconds in milliseconds
+        timer();  // Execute timer
+        
+        // Line 11: output := timer.Q;
+        output = timer.Q;
+        
+        // Line 12: counter := counter + 1;
+        counter = IEC_INT(counter.get() + 1);
+    }
+    
+private:
+    // Variable declarations
+    IEC_INT counter;
+    TON timer;
+    IEC_BOOL output;
+};
+
+// Main entry point (for standalone execution)
+int main() {
+    MyProgram program;
+    
+    // Simulate scan cycles
+    for (int i = 0; i < 100; i++) {
+        program();
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    return 0;
+}
+```
+
+### Benefits of This Architecture
+
+**1. No Duplicate Declarations**:
+- IEC types declared once in `iec_types.hpp`
+- Standard library declared once in `iec_stdlib.hpp`
+- User code only declares user's POUs
+
+**2. Fast Compilation**:
+- Standard library compiled once, cached
+- Only user's code recompiled on changes
+- Incremental builds possible
+
+**3. Clean Separation**:
+- Runtime (fixed) vs Library (cached) vs Project (generated)
+- Easy to update runtime without recompiling projects
+- Easy to update library without recompiling runtime
+
+**4. Modular and Maintainable**:
+- Each component has clear responsibility
+- Easy to test components independently
+- Easy to integrate with build systems
+
+**5. OpenPLC Integration**:
+- Generated C++ integrates cleanly with OpenPLC runtime
+- Can link against OpenPLC libraries
+- Supports OpenPLC's I/O and forcing mechanisms
+
+### Alternative: Single-File Output
+
+For simple use cases or embedded systems, STruC++ can generate a single standalone C++ file:
+
+```bash
+$ strucpp compile myprogram.st --standalone -o myprogram_standalone.cpp
+```
+
+**Generated `myprogram_standalone.cpp`**:
+```cpp
+// Inline all IEC type definitions
+template<typename T>
+class IECVar { /* ... */ };
+using IEC_INT = IECVar<int16_t>;
+// ... all type definitions
+
+// Inline all standard library functions
+IEC_INT ADD(IEC_INT a, IEC_INT b) { /* ... */ }
+// ... all standard functions
+
+// Inline all standard function blocks
+class TON { /* ... */ };
+// ... all standard FBs
+
+// User's program
+class MyProgram { /* ... */ };
+
+// Main
+int main() { /* ... */ }
+```
+
+**Trade-offs**:
+- ✅ Single file, easy to distribute
+- ✅ No external dependencies
+- ❌ Large file size (includes everything)
+- ❌ Slower compilation (recompiles everything)
+- ❌ Harder to maintain
+
+### Integration with Build Systems
+
+**CMake Example**:
+```cmake
+# CMakeLists.txt
+cmake_minimum_required(VERSION 3.15)
+project(MyPLCProject)
+
+# Find STruC++ runtime
+find_package(STruCpp REQUIRED)
+
+# Compile ST to C++
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/myprogram.cpp
+    COMMAND strucpp compile ${CMAKE_CURRENT_SOURCE_DIR}/myprogram.st 
+            -o ${CMAKE_CURRENT_BINARY_DIR}/myprogram.cpp
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/myprogram.st
+)
+
+# Build executable
+add_executable(myprogram 
+    ${CMAKE_CURRENT_BINARY_DIR}/myprogram.cpp
+    ${STRUCPP_STDLIB_CPP}
+)
+
+target_include_directories(myprogram PRIVATE
+    ${STRUCPP_INCLUDE_DIRS}
+    ${STRUCPP_STDLIB_INCLUDE_DIRS}
+)
+
+target_link_libraries(myprogram PRIVATE
+    ${STRUCPP_LIBRARIES}
+)
+```
+
+**Makefile Example**:
+```makefile
+# Makefile
+STRUCPP = strucpp
+STRUCPP_INCLUDE = /usr/local/include/strucpp
+STRUCPP_STDLIB = ~/.strucpp/cache/iec_stdlib/current
+
+CXX = g++
+CXXFLAGS = -std=c++20 -O2 -I$(STRUCPP_INCLUDE) -I$(STRUCPP_STDLIB)
+
+myprogram: myprogram.cpp $(STRUCPP_STDLIB)/iec_stdlib.cpp
+	$(CXX) $(CXXFLAGS) -o $@ $^
+
+myprogram.cpp: myprogram.st
+	$(STRUCPP) compile $< -o $@
+
+clean:
+	rm -f myprogram myprogram.cpp
 ```
 
 ## Standard Function Blocks
