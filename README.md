@@ -48,14 +48,17 @@ For detailed architecture information, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## IEC 61131-3 Compliance
 
-STruC++ targets full compliance with IEC 61131-3 Edition 3.0, including:
+STruC++ targets full compliance with IEC 61131-3 Edition 3.0 **Structured Text (ST) language**, including:
 
-- All five programming languages (ST, IL, FBD, LD, SFC) - textual representations
+- **Structured Text (ST) only** - STruC++ compiles ST programs exclusively
+  - Other IEC languages (IL, FBD, LD, SFC) are supported via OpenPLC Editor's translation to ST
+  - The editor converts graphical and other textual languages to ST before compilation
 - Modern type system with references (REF_TO, REF, DREF, ^, NULL)
 - Nested comments
 - Function blocks, functions, and programs
 - User-defined types (structures, enumerations, arrays)
 - All standard data types and functions
+- Full project structure (CONFIGURATION, RESOURCE, TASK, program instances)
 
 For detailed compliance information, see [IEC61131_COMPLIANCE.md](IEC61131_COMPLIANCE.md).
 

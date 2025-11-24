@@ -476,11 +476,510 @@ def test_library_cache():
 4. The standard library architecture must be designed before we implement library compilation
 
 **Relationship to Phase 2**:
-- Phase 2 will implement the parser and compiler that **generates** code using this runtime
-- Phase 2 will implement the library cache mechanism
-- Phase 2 will compile ST programs that use the types and functions defined here
+- Phase 2 will parse the IEC project structure (Config/Resource/Task/Instance) and generate C++ skeleton classes
+- Phase 2 will NOT compile ST code yet - that comes in Phase 3+
+- Phase 2 establishes the structural foundation that Phase 3+ will fill in with behavior
 
-## Phase 2: Functions and Function Calls
+## Phase 2: Project Structure and Scheduling Model
+
+**Status**: ⏳ PENDING
+
+**Duration**: 3-4 weeks
+
+**Goal**: Parse IEC 61131-3 project structure (CONFIGURATION, RESOURCE, TASK, program instances) and generate C++ class hierarchy for runtime scheduling, WITHOUT compiling ST program bodies yet
+
+### Scope
+
+**Core Focus**: Build the project model and generate C++ skeleton for the structural and scheduling aspects of an IEC project. This phase is purely about the *shape* of the project (what configs, resources, tasks, and instances exist), not the *behavior* (ST code inside programs).
+
+**Key Deliverables**:
+1. **Project Structure Parser** - Parse CONFIGURATION, RESOURCE, TASK, program instance declarations
+2. **Project Model** - Internal representation of project structure
+3. **C++ Class Hierarchy** - Generate Config/Resource/Task/Program classes
+4. **Global Variable Handling** - VAR_GLOBAL and VAR_EXTERNAL resolution
+5. **Program Instance Wiring** - Connect program instances to tasks with proper references
+6. **Empty Program Stubs** - Generate program classes with empty .run() methods
+
+### Rationale: Why This Phase Comes Before ST Compilation
+
+**Foundation-First Approach**: The IEC project structure (Config → Resource → Task → Instance) is declarative and predictable. We can parse and generate this structure independently from the ST code compilation, which provides several benefits:
+
+1. **Testability** - Can validate project structure generation even with empty .run() methods
+2. **Clear Separation** - Structure (Phase 2) vs. Behavior (Phase 3+)
+3. **Runtime Integration** - Runtime can iterate over configs/resources/tasks without knowing ST details
+4. **Incremental Development** - Smaller, focused phases are easier to implement and test
+
+### Detailed Scope
+
+#### 1. Project Structure Parsing
+
+**Use Lark Parser** (same parser as later phases, but only for structural constructs):
+- Parse CONFIGURATION declarations
+- Parse RESOURCE declarations (with ON clause)
+- Parse TASK declarations (INTERVAL, PRIORITY)
+- Parse PROGRAM instance declarations (WITH clause binding to tasks)
+- Parse VAR_GLOBAL blocks
+- Parse PROGRAM headers (name, VAR declarations) but **ignore** program bodies
+
+**Build ProjectModel** from parsed AST:
+```python
+@dataclass
+class ProjectModel:
+    configurations: List[ConfigurationDecl]
+    programs: Dict[str, ProgramDecl]  # Program definitions (types)
+    functions: Dict[str, FunctionDecl]  # For later phases
+    function_blocks: Dict[str, FunctionBlockDecl]  # For later phases
+
+@dataclass
+class ConfigurationDecl:
+    name: str
+    global_vars: List[VarDeclaration]
+    resources: List[ResourceDecl]
+
+@dataclass
+class ResourceDecl:
+    name: str
+    processor: str  # "PLC", "CPU", etc. from ON clause
+    tasks: List[TaskDecl]
+
+@dataclass
+class TaskDecl:
+    name: str
+    interval: Optional[TimeValue]  # T#20ms, etc.
+    priority: Optional[int]
+    program_instances: List[ProgramInstanceDecl]
+
+@dataclass
+class ProgramInstanceDecl:
+    instance_name: str
+    program_type: str  # References a ProgramDecl
+    task_name: str  # Which task this instance runs on
+
+@dataclass
+class ProgramDecl:
+    name: str
+    var_declarations: List[VarDeclaration]
+    var_external: List[VarExternalDeclaration]
+    body: Optional[StatementList]  # Phase 2: None (ignored)
+                                    # Phase 3+: Parsed and compiled
+```
+
+#### 2. C++ Class Generation for Project Structure
+
+**Generate Configuration Classes**:
+
+For each CONFIGURATION, generate a C++ class that:
+- Inherits from `ConfigurationInstance` (Phase 1 runtime base)
+- Contains VAR_GLOBAL variables as IECVar<T> members
+- Contains program instance objects as members
+- Contains task descriptor arrays
+- Contains resource descriptor arrays
+- Wires everything together in constructor
+
+**Generate Program Classes**:
+
+For each PROGRAM definition, generate a C++ class that:
+- Inherits from `ProgramBase` (Phase 1 runtime base)
+- Contains VAR variables as IECVar<T> members
+- Contains VAR_EXTERNAL variables as IECVar<T>& references (injected via constructor)
+- Has empty `void run() override` method (filled in by Phase 3+)
+
+**Example: User's Sample Project**
+
+Original ST:
+```st
+PROGRAM main
+  VAR
+    hello : BOOL;
+    world : BOOL;
+  END_VAR
+  hello := world;  (* Body ignored in Phase 2 *)
+END_PROGRAM
+
+PROGRAM another
+  VAR
+    LocalVar : DINT;
+  END_VAR
+  VAR_EXTERNAL
+    my_global_var : DINT;
+  END_VAR
+  LocalVar := my_global_var;  (* Body ignored in Phase 2 *)
+END_PROGRAM
+
+CONFIGURATION Config0
+  VAR_GLOBAL
+    my_global_var : DINT;
+  END_VAR
+
+  RESOURCE Res0 ON PLC
+    TASK task0(INTERVAL := T#20ms,PRIORITY := 1);
+    TASK task1(INTERVAL := T#50ms,PRIORITY := 0);
+    PROGRAM instance0 WITH task0 : main;
+    PROGRAM instance1 WITH task1 : another;
+  END_RESOURCE
+END_CONFIGURATION
+```
+
+Generated C++ (Phase 2):
+```cpp
+// Program class for "main"
+class Program_main : public ProgramBase {
+public:
+    IEC_BOOL hello;
+    IEC_BOOL world;
+    
+    Program_main() : hello(false), world(false) {}
+    
+    void run() override {
+        // Phase 2: Empty stub
+        // Phase 3+: Will contain compiled ST code
+    }
+};
+
+// Program class for "another"
+class Program_another : public ProgramBase {
+public:
+    IEC_DINT LocalVar;
+    IEC_DINT& my_global_var;  // Reference to configuration global
+    
+    explicit Program_another(IEC_DINT& global_var)
+        : LocalVar(0), my_global_var(global_var) {}
+    
+    void run() override {
+        // Phase 2: Empty stub
+        // Phase 3+: Will contain compiled ST code
+    }
+};
+
+// Configuration class
+class Configuration_Config0 : public ConfigurationInstance {
+public:
+    // VAR_GLOBAL variables
+    IEC_DINT my_global_var;
+    
+    // Program instances
+    Program_main instance0;
+    Program_another instance1;
+    
+    // Task descriptors (backing storage)
+    TaskInstance tasks_storage[2];
+    ResourceInstance resources_storage[1];
+    
+    Configuration_Config0()
+        : my_global_var(0),
+          instance0(),
+          instance1(my_global_var)  // Inject global reference
+    {
+        // Wire up task0
+        tasks_storage[0] = TaskInstance{
+            "task0", IEC_TIME::from_ms(20), 1, &instance0
+        };
+        
+        // Wire up task1
+        tasks_storage[1] = TaskInstance{
+            "task1", IEC_TIME::from_ms(50), 0, &instance1
+        };
+        
+        // Wire up resource
+        resources_storage[0] = ResourceInstance{
+            "Res0", std::span<TaskInstance>(tasks_storage, 2)
+        };
+        
+        // Initialize base
+        name = "Config0";
+        resources = std::span<ResourceInstance>(resources_storage, 1);
+    }
+};
+
+// Top-level configuration array
+Configuration_Config0 g_config0;
+ConfigurationInstance* g_configurations[] = { &g_config0 };
+const size_t g_num_configurations = 1;
+```
+
+See `docs/project_structure_example.cpp` for a complete, annotated example.
+
+#### 3. VAR_GLOBAL and VAR_EXTERNAL Handling
+
+**VAR_GLOBAL Resolution**:
+- Global variables are members of the Configuration class
+- Type: `IEC_<TYPE>` wrappers (from Phase 1)
+- Initialized in configuration constructor
+
+**VAR_EXTERNAL Resolution**:
+- External variables are references (`IEC_<TYPE>&`) in program classes
+- Passed to program constructor from configuration
+- Validated: external variable must exist in configuration's VAR_GLOBAL
+
+**Validation**:
+- Check that all VAR_EXTERNAL declarations reference existing VAR_GLOBAL variables
+- Check type compatibility between external and global declarations
+- Report clear errors for missing or mismatched externals
+
+#### 4. Task and Program Instance Wiring
+
+**Task Descriptors**:
+```cpp
+struct TaskInstance {
+    const char* name;
+    IEC_TIME interval;
+    int priority;
+    ProgramBase* program;  // Points to program instance
+};
+```
+
+**Wiring Process**:
+1. For each TASK declaration, create a `TaskInstance` in configuration constructor
+2. For each PROGRAM instance WITH task, set the task's `program` pointer to the instance
+3. Store tasks in resource's task array
+4. Store resources in configuration's resource array
+
+**Runtime Access**:
+```cpp
+// Runtime can iterate over all configurations
+for (size_t i = 0; i < g_num_configurations; i++) {
+    ConfigurationInstance* config = g_configurations[i];
+    
+    // Iterate over resources
+    for (auto& resource : config->resources) {
+        
+        // Iterate over tasks
+        for (auto& task : resource.tasks) {
+            
+            // Execute program instance
+            task.program->run();
+        }
+    }
+}
+```
+
+### Deliverables
+
+**Parser Extensions**:
+- Lark grammar for CONFIGURATION, RESOURCE, TASK syntax
+- Lark grammar for VAR_GLOBAL, VAR_EXTERNAL
+- Lark grammar for PROGRAM headers (without bodies)
+- AST nodes for configuration elements
+
+**Project Model**:
+- Python classes for ProjectModel, ConfigurationDecl, ResourceDecl, TaskDecl, etc.
+- Builder that constructs ProjectModel from parsed AST
+- Validation logic for project structure
+
+**Code Generator (Structural)**:
+- Generate Configuration classes with global variables
+- Generate Program classes with empty .run() stubs
+- Generate task and resource descriptor arrays
+- Generate top-level configuration array
+- Wire up program instances with task references
+
+**Documentation**:
+- Project structure design document
+- Example showing generated code for sample project
+- Integration guide for runtime
+
+**Testing**:
+- Parse configuration declarations
+- Validate VAR_GLOBAL and VAR_EXTERNAL resolution
+- Generate C++ for sample projects
+- Compile generated C++ (even with empty .run() methods)
+- Verify task/resource/config structure is correct
+
+### Success Criteria
+
+- ✅ Can parse CONFIGURATION, RESOURCE, TASK, program instance declarations
+- ✅ VAR_GLOBAL and VAR_EXTERNAL resolution works correctly
+- ✅ Generated C++ compiles successfully
+- ✅ Configuration class hierarchy matches IEC structure
+- ✅ Task descriptors correctly reference program instances
+- ✅ Runtime can iterate over configs/resources/tasks
+- ✅ Program classes have empty .run() stubs ready for Phase 3+
+- ✅ Test coverage >90% for project structure parsing and generation
+
+### Validation Examples
+
+**Test 1: Simple Configuration**
+```st
+CONFIGURATION Config0
+  RESOURCE Res0 ON PLC
+    TASK task0(INTERVAL := T#100ms, PRIORITY := 0);
+    PROGRAM instance0 WITH task0 : MyProgram;
+  END_RESOURCE
+END_CONFIGURATION
+```
+
+Expected: Generate `Configuration_Config0` class with one resource, one task, one program instance. Verify task descriptor points to program instance.
+
+**Test 2: Global Variables**
+```st
+CONFIGURATION Config0
+  VAR_GLOBAL
+    counter : INT := 0;
+    flag : BOOL;
+  END_VAR
+  
+  RESOURCE Res0 ON PLC
+    TASK task0(INTERVAL := T#50ms, PRIORITY := 1);
+    PROGRAM instance0 WITH task0 : MyProgram;
+  END_RESOURCE
+END_CONFIGURATION
+```
+
+Expected: Configuration class has `IEC_INT counter` and `IEC_BOOL flag` members, initialized in constructor.
+
+**Test 3: External Variables**
+```st
+PROGRAM MyProgram
+  VAR_EXTERNAL
+    counter : INT;
+  END_VAR
+  (* Body ignored in Phase 2 *)
+END_PROGRAM
+
+CONFIGURATION Config0
+  VAR_GLOBAL
+    counter : INT;
+  END_VAR
+  
+  RESOURCE Res0 ON PLC
+    TASK task0(INTERVAL := T#50ms, PRIORITY := 1);
+    PROGRAM instance0 WITH task0 : MyProgram;
+  END_RESOURCE
+END_CONFIGURATION
+```
+
+Expected: `Program_MyProgram` class has `IEC_INT& counter` reference, passed from configuration's global `counter` in constructor.
+
+**Test 4: Multiple Tasks and Instances**
+```st
+CONFIGURATION Config0
+  RESOURCE Res0 ON PLC
+    TASK fast_task(INTERVAL := T#10ms, PRIORITY := 2);
+    TASK slow_task(INTERVAL := T#100ms, PRIORITY := 1);
+    PROGRAM fast_prog WITH fast_task : FastProgram;
+    PROGRAM slow_prog WITH slow_task : SlowProgram;
+  END_RESOURCE
+END_CONFIGURATION
+```
+
+Expected: Configuration has 2 tasks in resource, each pointing to correct program instance. Verify intervals and priorities are correct.
+
+### Notes
+
+**What Phase 2 Does NOT Include**:
+- ❌ No ST code compilation (expressions, statements, control flow)
+- ❌ No semantic analysis of program bodies
+- ❌ No type checking of ST expressions
+- ❌ No code generation for .run() method bodies
+- ❌ No function or function block compilation
+
+**What Phase 2 DOES Include**:
+- ✅ Parse project structure (Config/Resource/Task/Instance)
+- ✅ Parse VAR_GLOBAL and VAR_EXTERNAL declarations
+- ✅ Parse PROGRAM headers (name, VAR declarations)
+- ✅ Generate C++ class hierarchy for project structure
+- ✅ Generate empty .run() method stubs
+- ✅ Wire up program instances with tasks
+
+**Why This Order?**:
+1. Project structure is **declarative** - simpler to parse than ST logic
+2. Can test structure generation **independently** from ST compilation
+3. Runtime needs the structure **before** it needs the behavior
+4. Clear **separation of concerns**: structure (Phase 2) vs. behavior (Phase 3+)
+
+**Relationship to Phase 3**:
+- Phase 3 will parse ST code inside PROGRAM bodies
+- Phase 3 will compile expressions, assignments, and simple statements
+- Phase 3 will fill in the .run() method implementations
+- Phase 3 will use the program classes and structure created in Phase 2
+
+**Parsing Strategy**:
+- Use same Lark parser for everything (no second parser)
+- Phase 2: Only parse structural constructs, ignore program bodies
+- Phase 3+: Extend to parse program bodies and compile ST code
+- Single grammar, incremental implementation
+
+## Phase 3: Core ST Translation (Expressions and Statements)
+
+**Status**: ⏳ PENDING
+
+**Duration**: 4-6 weeks
+
+**Goal**: Implement parser and code generator for basic ST expressions, assignments, and simple statements to fill in program .run() methods
+
+### Scope
+
+**Language Features**:
+- Elementary data types: BOOL, INT, DINT, REAL, LREAL
+- Literals: integer, real, boolean
+- Simple expressions: arithmetic (+, -, *, /), comparison (=, <>, <, >, <=, >=), logical (AND, OR, NOT)
+- Assignment statements
+- Variable references (local VAR and VAR_EXTERNAL)
+
+**Example ST Program Body**:
+```st
+PROGRAM Test
+    VAR
+        x : INT;
+        y : INT;
+        result : BOOL;
+    END_VAR
+    
+    x := 10;
+    y := 20;
+    result := x < y;
+END_PROGRAM
+```
+
+This phase fills in the `.run()` method for programs created in Phase 2.
+
+### Deliverables
+
+**Frontend**:
+- Lark grammar for expression subset
+- Lexer and parser implementation for ST expressions and assignments
+- AST node classes for expressions and statements
+- Source location tracking
+
+**Semantic Analysis**:
+- Symbol table implementation for local scopes
+- Type inference for literals and expressions
+- Type checking for assignments and operators
+- Basic error reporting with source locations
+
+**Code Generation**:
+- C++ code generator for expressions and assignments
+- Fill in .run() method bodies in program classes
+- Line mapping implementation
+- Use Phase 1 IEC type wrappers and Phase 2 program structure
+
+**Testing**:
+- Unit tests for parser, type checker, code generator
+- Golden file tests (ST input → expected C++ output)
+- Runtime tests (compile and execute generated C++)
+
+### Success Criteria
+
+- ✅ Can parse simple program bodies with expressions and assignments
+- ✅ Type checking correctly identifies type errors
+- ✅ Generated C++ compiles with g++/clang++
+- ✅ Generated C++ produces correct results when executed
+- ✅ Line mapping is accurate (1:1 for simple statements)
+- ✅ Test coverage >90% for implemented features
+- ✅ All golden file tests pass
+
+### Notes
+
+**Relationship to Phase 2**:
+- Uses program classes and structure created in Phase 2
+- Fills in empty .run() method bodies
+- Accesses VAR and VAR_EXTERNAL variables from program class members
+
+**Relationship to Phase 4**:
+- Phase 4 will add function calls and user-defined functions
+- Phase 3 focuses only on expressions and assignments (no function calls yet)
+
+## Phase 4: Functions and Function Calls
 
 **Status**: ⏳ PENDING
 
@@ -607,7 +1106,7 @@ END_PROGRAM
 ```
 Expected: x = 20, y = 10
 
-## Phase 3: Function Blocks and Classes
+## Phase 5: Function Blocks and Classes
 
 **Status**: ⏳ PENDING
 
@@ -765,25 +1264,22 @@ PROGRAM ForcingTest
 END_PROGRAM
 ```
 
-## Phase 4: Programs, Configurations, and Resources
+## Phase 6: Located Variables and OpenPLC Integration
 
 **Status**: ⏳ PENDING
 
-**Duration**: 4-6 weeks
+**Duration**: 3-4 weeks
 
-**Goal**: Implement full POU hierarchy and OpenPLC integration
+**Goal**: Add support for located variables (I/O mapping) and integrate with OpenPLC runtime
 
 ### Scope
 
 **Language Features**:
-- PROGRAM declarations (already partially done)
-- CONFIGURATION declarations
-- RESOURCE declarations
-- TASK declarations
-- Global variables (VAR_GLOBAL)
-- External variables (VAR_EXTERNAL)
-- Located variables (AT %IX0.0, etc.)
-- Program instances in configurations
+- Located variables (AT %IX0.0, %QX0.0, etc.)
+- I/O mapping and addressing
+- Direct representation access
+
+**Note**: PROGRAM, CONFIGURATION, RESOURCE, TASK, VAR_GLOBAL, and VAR_EXTERNAL are already handled in Phase 2. This phase focuses on the remaining features needed for full OpenPLC integration.
 
 **Example ST Code**:
 ```
@@ -888,7 +1384,7 @@ PROGRAM IOTest
 END_PROGRAM
 ```
 
-## Phase 5: IEC v3 Features and Full Coverage
+## Phase 7: IEC v3 Features and Full Coverage
 
 **Status**: ⏳ PENDING
 
@@ -1048,7 +1544,7 @@ PROGRAM ControlFlow
 END_PROGRAM
 ```
 
-## Phase 6: Optimizations and Advanced Debug Support
+## Phase 8: Optimizations and Advanced Debug Support
 
 **Status**: ⏳ PENDING
 
@@ -1267,14 +1763,16 @@ Provide smooth migration from MatIEC:
 | Phase | Duration | Cumulative | Status |
 |-------|----------|------------|--------|
 | Phase 0: Design | 2-3 weeks | 3 weeks | ✅ COMPLETED |
-| Phase 1: Core Frontend | 4-6 weeks | 9 weeks | ⏳ PENDING |
-| Phase 2: Functions | 4-6 weeks | 15 weeks | ⏳ PENDING |
-| Phase 3: Function Blocks | 6-8 weeks | 23 weeks | ⏳ PENDING |
-| Phase 4: Programs & Config | 4-6 weeks | 29 weeks | ⏳ PENDING |
-| Phase 5: IEC v3 & Full Coverage | 6-8 weeks | 37 weeks | ⏳ PENDING |
-| Phase 6: Optimizations | 4-6 weeks | 43 weeks | ⏳ PENDING |
+| Phase 1: IEC Types & Runtime | 4-6 weeks | 9 weeks | ⏳ PENDING |
+| Phase 2: Project Structure | 3-4 weeks | 13 weeks | ⏳ PENDING |
+| Phase 3: Core ST Translation | 4-6 weeks | 19 weeks | ⏳ PENDING |
+| Phase 4: Functions | 4-6 weeks | 25 weeks | ⏳ PENDING |
+| Phase 5: Function Blocks | 6-8 weeks | 33 weeks | ⏳ PENDING |
+| Phase 6: Located Variables & OpenPLC | 3-4 weeks | 37 weeks | ⏳ PENDING |
+| Phase 7: IEC v3 & Full Coverage | 6-8 weeks | 45 weeks | ⏳ PENDING |
+| Phase 8: Optimizations | 4-6 weeks | 51 weeks | ⏳ PENDING |
 
-**Total Estimated Duration**: 9-11 months
+**Total Estimated Duration**: 10-12 months
 
 **Note**: Phases may overlap, and timeline may be adjusted based on progress and priorities.
 
