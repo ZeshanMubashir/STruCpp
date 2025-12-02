@@ -107,7 +107,7 @@ STruC++ uses a straightforward translation pipeline that clearly separates conce
          ▼
 ┌─────────────────┐
 │     Parser      │
-│  (Lark LALR)    │
+│  (Chevrotain)   │
 └────────┬────────┘
          │
          ▼
@@ -158,9 +158,9 @@ STruC++ uses a straightforward translation pipeline that clearly separates conce
 **Output**: Syntax Tree (AST)  
 **Responsibility**: Convert source text into a structured tree representation
 
-The parser uses the Lark library in LALR mode to:
-- Tokenize the input
-- Parse tokens according to IEC 61131-3 grammar
+The parser uses the Chevrotain library to:
+- Tokenize the input using Chevrotain's lexer
+- Parse tokens according to IEC 61131-3 grammar using a recursive descent parser
 - Build a simple AST that mirrors the ST structure
 - Attach source location metadata (file, line, column) to each node
 
@@ -184,14 +184,15 @@ This pass walks the AST once to build symbol tables for:
 - **Global constants** - Named constants
 
 **Symbol Table Structure**:
-```python
-class SymbolTables:
-    functions: Dict[str, FunctionDecl]
-    function_blocks: Dict[str, FunctionBlockDecl]
-    programs: Dict[str, ProgramDecl]
-    types: Dict[str, TypeDecl]
-    enum_values: Dict[str, EnumValueDecl]
-    constants: Dict[str, ConstantDecl]
+```typescript
+interface SymbolTables {
+    functions: Map<string, FunctionDecl>;
+    functionBlocks: Map<string, FunctionBlockDecl>;
+    programs: Map<string, ProgramDecl>;
+    types: Map<string, TypeDecl>;
+    enumValues: Map<string, EnumValueDecl>;
+    constants: Map<string, ConstantDecl>;
+}
 ```
 
 **Why we need this**: IEC allows the same identifier to mean different things in different contexts (e.g., `TON` could be a type or a variable). The symbol table lets us resolve these ambiguities.
@@ -262,39 +263,45 @@ For later phases, we may introduce an optional IR layer between the typed AST an
 - Still maintaining 1:1 mapping to ST statements where possible
 
 **IR Node Types (if used):**
-```python
-class IRNode:
-    source_span: SourceSpan  # (file, start_line, end_line, start_col, end_col)
-    
-class IRAssignment(IRNode):
-    target: IRExpression
-    value: IRExpression
-    
-class IRFunctionCall(IRNode):
-    function: FunctionDecl
-    arguments: List[IRExpression]
-    result_var: Optional[IRVariable]
-    
-class IRFBCall(IRNode):
-    fb_instance: IRVariable
-    fb_type: FunctionBlockDecl
-    inputs: Dict[str, IRExpression]
-    outputs: Dict[str, IRVariable]
-    
-class IRIfStatement(IRNode):
-    condition: IRExpression
-    then_block: List[IRNode]
-    elsif_blocks: List[Tuple[IRExpression, List[IRNode]]]
-    else_block: Optional[List[IRNode]]
-    
-class IRForLoop(IRNode):
-    control_var: IRVariable
-    start: IRExpression
-    end: IRExpression
-    step: Optional[IRExpression]
-    body: List[IRNode]
-    
-# ... more IR node types
+```typescript
+interface IRNode {
+    sourceSpan: SourceSpan;  // { file, startLine, endLine, startCol, endCol }
+}
+
+interface IRAssignment extends IRNode {
+    target: IRExpression;
+    value: IRExpression;
+}
+
+interface IRFunctionCall extends IRNode {
+    function: FunctionDecl;
+    arguments: IRExpression[];
+    resultVar?: IRVariable;
+}
+
+interface IRFBCall extends IRNode {
+    fbInstance: IRVariable;
+    fbType: FunctionBlockDecl;
+    inputs: Map<string, IRExpression>;
+    outputs: Map<string, IRVariable>;
+}
+
+interface IRIfStatement extends IRNode {
+    condition: IRExpression;
+    thenBlock: IRNode[];
+    elsifBlocks: Array<{ condition: IRExpression; block: IRNode[] }>;
+    elseBlock?: IRNode[];
+}
+
+interface IRForLoop extends IRNode {
+    controlVar: IRVariable;
+    start: IRExpression;
+    end: IRExpression;
+    step?: IRExpression;
+    body: IRNode[];
+}
+
+// ... more IR node types
 ```
 
 **Lowering Rules (if IR is used)**:
@@ -335,164 +342,192 @@ This enables debuggers to map between ST source and C++ code.
 
 ### Abstract Syntax Tree (AST)
 
-The AST is a tree of Python objects representing the syntactic structure of the ST program. Each node type corresponds to a grammar production.
+The AST is a tree of TypeScript objects representing the syntactic structure of the ST program. Each node type corresponds to a grammar production.
 
 **Base AST Node**:
-```python
-@dataclass
-class ASTNode:
-    source_span: SourceSpan
-    parent: Optional['ASTNode'] = None
-    
-@dataclass
-class SourceSpan:
-    file: str
-    start_line: int
-    end_line: int
-    start_col: int
-    end_col: int
+```typescript
+interface SourceSpan {
+    file: string;
+    startLine: number;
+    endLine: number;
+    startCol: number;
+    endCol: number;
+}
+
+interface ASTNode {
+    sourceSpan: SourceSpan;
+    parent?: ASTNode;
+}
 ```
 
 **Example AST Nodes**:
-```python
-@dataclass
-class Program(ASTNode):
-    name: str
-    var_declarations: List[VarDeclaration]
-    body: StatementList
-    
-@dataclass
-class FunctionBlock(ASTNode):
-    name: str
-    input_vars: List[VarDeclaration]
-    output_vars: List[VarDeclaration]
-    local_vars: List[VarDeclaration]
-    body: StatementList
-    
-@dataclass
-class Assignment(ASTNode):
-    target: Expression
-    value: Expression
-    
-@dataclass
-class BinaryOp(ASTNode):
-    operator: str  # '+', '-', '*', '/', 'AND', 'OR', etc.
-    left: Expression
-    right: Expression
-    
-@dataclass
-class FunctionCall(ASTNode):
-    function_name: str
-    arguments: List[Expression]
+```typescript
+interface Program extends ASTNode {
+    name: string;
+    varDeclarations: VarDeclaration[];
+    body: StatementList;
+}
+
+interface FunctionBlock extends ASTNode {
+    name: string;
+    inputVars: VarDeclaration[];
+    outputVars: VarDeclaration[];
+    localVars: VarDeclaration[];
+    body: StatementList;
+}
+
+interface Assignment extends ASTNode {
+    target: Expression;
+    value: Expression;
+}
+
+interface BinaryOp extends ASTNode {
+    operator: string;  // '+', '-', '*', '/', 'AND', 'OR', etc.
+    left: Expression;
+    right: Expression;
+}
+
+interface FunctionCall extends ASTNode {
+    functionName: string;
+    arguments: Expression[];
+}
 ```
 
 After semantic analysis, nodes gain additional attributes:
-```python
-# Added by type inference
-node.candidate_types: List[IECType]
+```typescript
+// Added by type inference
+interface TypedNode extends ASTNode {
+    candidateTypes?: IECType[];
+    
+    // Added by type narrowing
+    resolvedType?: IECType;
+}
 
-# Added by type narrowing
-node.resolved_type: IECType
-
-# Added by overload resolution (for function calls)
-node.resolved_function: FunctionDecl
+// Added by overload resolution (for function calls)
+interface ResolvedFunctionCall extends FunctionCall, TypedNode {
+    resolvedFunction?: FunctionDecl;
+}
 ```
 
 ### Type System
 
 STruC++ maintains a rich type system that models IEC 61131-3 types:
 
-```python
-class IECType:
-    """Base class for all IEC types"""
-    pass
+```typescript
+// Base interface for all IEC types
+interface IECType {
+    readonly kind: string;
+}
 
-class ElementaryType(IECType):
-    """BOOL, INT, REAL, TIME, STRING, etc."""
-    name: str
-    size_bits: int
-    
-class DerivedType(IECType):
-    """User-defined types"""
-    name: str
-    base_type: IECType
-    
-class StructType(IECType):
-    name: str
-    fields: Dict[str, IECType]
-    
-class ArrayType(IECType):
-    element_type: IECType
-    dimensions: List[Tuple[int, int]]  # [(start, end), ...]
-    
-class EnumType(IECType):
-    name: str
-    values: List[str]
-    
-class FunctionBlockType(IECType):
-    name: str
-    input_vars: Dict[str, IECType]
-    output_vars: Dict[str, IECType]
-    inout_vars: Dict[str, IECType]
-    local_vars: Dict[str, IECType]
-    
-class ReferenceType(IECType):
-    """REF_TO <type>"""
-    referenced_type: IECType
+interface ElementaryType extends IECType {
+    kind: 'elementary';
+    name: string;  // BOOL, INT, REAL, TIME, STRING, etc.
+    sizeBits: number;
+}
+
+interface DerivedType extends IECType {
+    kind: 'derived';
+    name: string;
+    baseType: IECType;
+}
+
+interface StructType extends IECType {
+    kind: 'struct';
+    name: string;
+    fields: Map<string, IECType>;
+}
+
+interface ArrayType extends IECType {
+    kind: 'array';
+    elementType: IECType;
+    dimensions: Array<{ start: number; end: number }>;
+}
+
+interface EnumType extends IECType {
+    kind: 'enum';
+    name: string;
+    values: string[];
+}
+
+interface FunctionBlockType extends IECType {
+    kind: 'functionBlock';
+    name: string;
+    inputVars: Map<string, IECType>;
+    outputVars: Map<string, IECType>;
+    inoutVars: Map<string, IECType>;
+    localVars: Map<string, IECType>;
+}
+
+interface ReferenceType extends IECType {
+    kind: 'reference';
+    referencedType: IECType;  // REF_TO <type>
+}
 ```
 
 ### Symbol Tables
 
 Symbol tables map identifiers to their declarations:
 
-```python
-class SymbolTable:
-    """Generic symbol table with scoping support"""
-    parent: Optional['SymbolTable']
-    symbols: Dict[str, Declaration]
+```typescript
+class SymbolTable {
+    private parent?: SymbolTable;
+    private symbols: Map<string, Declaration> = new Map();
     
-    def lookup(self, name: str) -> Optional[Declaration]:
-        """Look up symbol in this scope and parent scopes"""
-        if name in self.symbols:
-            return self.symbols[name]
-        if self.parent:
-            return self.parent.lookup(name)
-        return None
+    constructor(parent?: SymbolTable) {
+        this.parent = parent;
+    }
     
-    def define(self, name: str, decl: Declaration):
-        """Define a symbol in this scope"""
-        if name in self.symbols:
-            raise SemanticError(f"Duplicate declaration: {name}")
-        self.symbols[name] = decl
+    /** Look up symbol in this scope and parent scopes */
+    lookup(name: string): Declaration | undefined {
+        const symbol = this.symbols.get(name);
+        if (symbol) {
+            return symbol;
+        }
+        if (this.parent) {
+            return this.parent.lookup(name);
+        }
+        return undefined;
+    }
+    
+    /** Define a symbol in this scope */
+    define(name: string, decl: Declaration): void {
+        if (this.symbols.has(name)) {
+            throw new SemanticError(`Duplicate declaration: ${name}`);
+        }
+        this.symbols.set(name, decl);
+    }
+}
 ```
 
 ## Frontend: Lexical Analysis and Parsing
 
-### Parser Selection: Lark
+### Parser Selection: Chevrotain
 
-STruC++ uses **Lark** in LALR mode for parsing. See [PARSER_SELECTION.md](PARSER_SELECTION.md) for detailed rationale.
+STruC++ uses **Chevrotain** for parsing. See [PARSER_SELECTION.md](PARSER_SELECTION.md) for detailed rationale.
 
 **Key Benefits**:
-- Pure Python implementation (no external toolchain)
-- Declarative grammar in EBNF-like syntax
-- Good error reporting and recovery
-- Sufficient performance for PLC program sizes
-- Support for both LALR and Earley parsing
+- Pure TypeScript/JavaScript implementation (no external toolchain)
+- Programmatic grammar definition with full TypeScript type safety
+- Excellent error reporting and recovery capabilities
+- High performance suitable for browser and Node.js environments
+- Built-in support for syntax highlighting and IDE integration
 
 ### Grammar Organization
 
 The grammar is organized into modules matching the IEC 61131-3 standard structure:
 
 ```
-grammars/
-├── iec61131.lark           # Main grammar file
-├── common.lark             # Common elements (identifiers, literals)
-├── types.lark              # Type declarations
-├── expressions.lark        # Expressions and operators
-├── statements.lark         # ST statements
-├── pou.lark               # POUs (functions, FBs, programs)
-├── configuration.lark      # Configurations and resources
-└── il.lark                # Instruction List (if supported)
+src/frontend/
+├── lexer.ts                # Token definitions using Chevrotain
+├── parser.ts               # Main parser class
+├── grammar/
+│   ├── common.ts           # Common elements (identifiers, literals)
+│   ├── types.ts            # Type declarations
+│   ├── expressions.ts      # Expressions and operators
+│   ├── statements.ts       # ST statements
+│   ├── pou.ts              # POUs (functions, FBs, programs)
+│   └── configuration.ts    # Configurations and resources
+└── visitor.ts              # CST to AST visitor
 ```
 
 ### Lexical Tokens
@@ -511,7 +546,7 @@ IEC 61131-3 has context-sensitive elements (identifier ambiguity). STruC++ handl
 
 1. **Parse everything as identifiers first** - Don't try to distinguish types/vars/functions during parsing
 2. **Resolve in symbol table pass** - Use symbol tables to determine identifier classes
-3. **Semantic predicates** - Use Lark's predicate support for truly ambiguous cases
+3. **Semantic predicates** - Use Chevrotain's GATE mechanism for truly ambiguous cases
 
 This is simpler than MatIEC's approach of maintaining symbol tables during parsing.
 
@@ -519,29 +554,41 @@ This is simpler than MatIEC's approach of maintaining symbol tables during parsi
 
 The symbol table builder is a single-pass visitor over the raw AST:
 
-```python
-class SymbolTableBuilder:
-    def __init__(self):
-        self.global_symbols = SymbolTables()
-        
-    def build(self, ast: ASTNode) -> SymbolTables:
-        """Build symbol tables from AST"""
-        self.visit(ast)
-        return self.global_symbols
-        
-    def visit_function_declaration(self, node: FunctionDeclaration):
-        """Register function in symbol table"""
-        if node.name in self.global_symbols.functions:
-            raise SemanticError(f"Duplicate function: {node.name}")
-        self.global_symbols.functions[node.name] = node
-        
-    def visit_function_block_declaration(self, node: FunctionBlockDeclaration):
-        """Register function block type in symbol table"""
-        if node.name in self.global_symbols.function_blocks:
-            raise SemanticError(f"Duplicate function block: {node.name}")
-        self.global_symbols.function_blocks[node.name] = node
-        
-    # ... similar for programs, types, etc.
+```typescript
+class SymbolTableBuilder {
+    private globalSymbols: SymbolTables = {
+        functions: new Map(),
+        functionBlocks: new Map(),
+        programs: new Map(),
+        types: new Map(),
+        enumValues: new Map(),
+        constants: new Map(),
+    };
+    
+    /** Build symbol tables from AST */
+    build(ast: ASTNode): SymbolTables {
+        this.visit(ast);
+        return this.globalSymbols;
+    }
+    
+    /** Register function in symbol table */
+    private visitFunctionDeclaration(node: FunctionDeclaration): void {
+        if (this.globalSymbols.functions.has(node.name)) {
+            throw new SemanticError(`Duplicate function: ${node.name}`);
+        }
+        this.globalSymbols.functions.set(node.name, node);
+    }
+    
+    /** Register function block type in symbol table */
+    private visitFunctionBlockDeclaration(node: FunctionBlockDeclaration): void {
+        if (this.globalSymbols.functionBlocks.has(node.name)) {
+            throw new SemanticError(`Duplicate function block: ${node.name}`);
+        }
+        this.globalSymbols.functionBlocks.set(node.name, node);
+    }
+    
+    // ... similar for programs, types, etc.
+}
 ```
 
 ## Semantic Analysis
@@ -550,56 +597,71 @@ Semantic analysis is decomposed into focused passes:
 
 ### Type Inference Pass
 
-```python
-class TypeInferencePass:
-    def __init__(self, symbol_tables: SymbolTables):
-        self.symbols = symbol_tables
+```typescript
+class TypeInferencePass {
+    private symbols: SymbolTables;
+    
+    constructor(symbolTables: SymbolTables) {
+        this.symbols = symbolTables;
+    }
+    
+    /** Infer candidate types for all expressions */
+    infer(ast: ASTNode): void {
+        this.visit(ast);
+    }
+    
+    /** Literals have obvious types */
+    private visitLiteral(node: Literal): void {
+        if (node.kind === 'intLiteral') {
+            node.candidateTypes = [INT, DINT, LINT];  // Could be any integer type
+        } else if (node.kind === 'boolLiteral') {
+            node.candidateTypes = [BOOL];
+        }
+        // ... etc
+    }
+    
+    /** Binary operations constrain operand types */
+    private visitBinaryOp(node: BinaryOp): void {
+        this.visit(node.left);
+        this.visit(node.right);
         
-    def infer(self, ast: ASTNode):
-        """Infer candidate types for all expressions"""
-        self.visit(ast)
-        
-    def visit_literal(self, node: Literal):
-        """Literals have obvious types"""
-        if isinstance(node, IntLiteral):
-            node.candidate_types = [INT, DINT, LINT]  # Could be any integer type
-        elif isinstance(node, BoolLiteral):
-            node.candidate_types = [BOOL]
-        # ... etc
-        
-    def visit_binary_op(self, node: BinaryOp):
-        """Binary operations constrain operand types"""
-        self.visit(node.left)
-        self.visit(node.right)
-        
-        # Find compatible types for this operator
-        node.candidate_types = self.get_operator_result_types(
+        // Find compatible types for this operator
+        node.candidateTypes = this.getOperatorResultTypes(
             node.operator,
-            node.left.candidate_types,
-            node.right.candidate_types
-        )
+            node.left.candidateTypes,
+            node.right.candidateTypes
+        );
+    }
+}
 ```
 
 ### Type Narrowing Pass
 
-```python
-class TypeNarrowingPass:
-    def narrow(self, ast: ASTNode):
-        """Narrow candidate types to single resolved type"""
-        self.visit(ast)
+```typescript
+class TypeNarrowingPass {
+    /** Narrow candidate types to single resolved type */
+    narrow(ast: ASTNode): void {
+        this.visit(ast);
+    }
+    
+    /** Target type constrains value type */
+    private visitAssignment(node: Assignment): void {
+        this.visit(node.target);
+        this.visit(node.value);
         
-    def visit_assignment(self, node: Assignment):
-        """Target type constrains value type"""
-        self.visit(node.target)
-        self.visit(node.value)
+        const targetType = node.target.resolvedType;
+        if (!node.value.candidateTypes?.includes(targetType)) {
+            // Check for implicit conversion
+            if (!this.canConvert(node.value.candidateTypes, targetType)) {
+                throw new TypeError(
+                    `Cannot assign ${node.value.candidateTypes} to ${targetType}`
+                );
+            }
+        }
         
-        target_type = node.target.resolved_type
-        if target_type not in node.value.candidate_types:
-            # Check for implicit conversion
-            if not self.can_convert(node.value.candidate_types, target_type):
-                raise TypeError(f"Cannot assign {node.value.candidate_types} to {target_type}")
-        
-        node.value.resolved_type = target_type
+        node.value.resolvedType = targetType;
+    }
+}
 ```
 
 ## Intermediate Representation
@@ -711,41 +773,49 @@ private:
 
 Each IR node type has a corresponding C++ generation method:
 
-```python
-class CppGenerator:
-    def generate_assignment(self, node: IRAssignment) -> str:
-        """Generate C++ for assignment"""
-        target = self.generate_expression(node.target)
-        value = self.generate_expression(node.value)
-        return f"{target} = {value};"
+```typescript
+class CppGenerator {
+    /** Generate C++ for assignment */
+    generateAssignment(node: IRAssignment): string {
+        const target = this.generateExpression(node.target);
+        const value = this.generateExpression(node.value);
+        return `${target} = ${value};`;
+    }
+    
+    /** Generate C++ for IF statement */
+    generateIfStatement(node: IRIfStatement): string {
+        const lines: string[] = [];
         
-    def generate_if_statement(self, node: IRIfStatement) -> str:
-        """Generate C++ for IF statement"""
-        lines = []
+        // IF condition
+        const cond = this.generateExpression(node.condition);
+        lines.push(`if (${cond}) {`);
         
-        # IF condition
-        cond = self.generate_expression(node.condition)
-        lines.append(f"if ({cond}) {{")
+        // THEN block
+        for (const stmt of node.thenBlock) {
+            lines.push('    ' + this.generateStatement(stmt));
+        }
         
-        # THEN block
-        for stmt in node.then_block:
-            lines.append("    " + self.generate_statement(stmt))
+        // ELSIF blocks
+        for (const { condition: elsifCond, block: elsifBlock } of node.elsifBlocks) {
+            const condStr = this.generateExpression(elsifCond);
+            lines.push(`} else if (${condStr}) {`);
+            for (const stmt of elsifBlock) {
+                lines.push('    ' + this.generateStatement(stmt));
+            }
+        }
         
-        # ELSIF blocks
-        for elsif_cond, elsif_block in node.elsif_blocks:
-            cond = self.generate_expression(elsif_cond)
-            lines.append(f"}} else if ({cond}) {{")
-            for stmt in elsif_block:
-                lines.append("    " + self.generate_statement(stmt))
+        // ELSE block
+        if (node.elseBlock) {
+            lines.push('} else {');
+            for (const stmt of node.elseBlock) {
+                lines.push('    ' + this.generateStatement(stmt));
+            }
+        }
         
-        # ELSE block
-        if node.else_block:
-            lines.append("} else {")
-            for stmt in node.else_block:
-                lines.append("    " + self.generate_statement(stmt))
-        
-        lines.append("}")
-        return "\n".join(lines)
+        lines.push('}');
+        return lines.join('\n');
+    }
+}
 ```
 
 ## Line Mapping and Debug Support
@@ -754,14 +824,14 @@ class CppGenerator:
 
 STruC++ maintains a mapping between ST source lines and generated C++ lines:
 
-```python
-@dataclass
-class LineMapping:
-    st_file: str
-    st_line: int
-    cpp_file: str
-    cpp_start_line: int
-    cpp_end_line: int
+```typescript
+interface LineMapping {
+    stFile: string;
+    stLine: number;
+    cppFile: string;
+    cppStartLine: number;
+    cppEndLine: number;
+}
 ```
 
 **Mapping File Format** (JSON):
@@ -894,132 +964,161 @@ using IEC_LREAL = IECVar<double>;
 
 STruC++ uses the visitor pattern extensively for AST traversal:
 
-```python
-class ASTVisitor:
-    """Base visitor for AST traversal"""
+```typescript
+abstract class ASTVisitor<T = void> {
+    /** Dispatch to appropriate visit method */
+    visit(node: ASTNode): T {
+        const methodName = `visit${node.kind}` as keyof this;
+        const method = this[methodName] as ((node: ASTNode) => T) | undefined;
+        if (method) {
+            return method.call(this, node);
+        }
+        return this.genericVisit(node);
+    }
     
-    def visit(self, node: ASTNode):
-        """Dispatch to appropriate visit method"""
-        method_name = f"visit_{node.__class__.__name__}"
-        method = getattr(self, method_name, self.generic_visit)
-        return method(node)
-    
-    def generic_visit(self, node: ASTNode):
-        """Default: visit all children"""
-        for child in node.children():
-            self.visit(child)
+    /** Default: visit all children */
+    protected genericVisit(node: ASTNode): T {
+        for (const child of node.children ?? []) {
+            this.visit(child);
+        }
+        return undefined as T;
+    }
+}
 ```
 
 ### Builder Pattern
 
 Complex objects (AST, IR) are constructed using builders:
 
-```python
-class IRBuilder:
-    """Build IR from typed AST"""
+```typescript
+class IRBuilder {
+    private statements: IRNode[] = [];
+    private tempCounter = 0;
     
-    def __init__(self):
-        self.statements = []
-        self.temp_counter = 0
-        
-    def build_assignment(self, target: Expression, value: Expression) -> IRAssignment:
-        """Build IR assignment node"""
-        return IRAssignment(
-            source_span=target.source_span,
-            target=self.build_expression(target),
-            value=self.build_expression(value)
-        )
+    /** Build IR assignment node */
+    buildAssignment(target: Expression, value: Expression): IRAssignment {
+        return {
+            sourceSpan: target.sourceSpan,
+            target: this.buildExpression(target),
+            value: this.buildExpression(value),
+        };
+    }
     
-    def create_temp_var(self, type: IECType) -> IRVariable:
-        """Create a temporary variable"""
-        name = f"__tmp_{self.temp_counter}"
-        self.temp_counter += 1
-        return IRVariable(name, type)
+    /** Create a temporary variable */
+    createTempVar(type: IECType): IRVariable {
+        const name = `__tmp_${this.tempCounter}`;
+        this.tempCounter++;
+        return { name, type };
+    }
+}
 ```
 
 ### Strategy Pattern
 
 Different code generation strategies for different targets:
 
-```python
-class CodeGenerator(ABC):
-    """Abstract code generator"""
-    
-    @abstractmethod
-    def generate_function(self, func: FunctionDecl) -> str:
-        pass
-    
-    @abstractmethod
-    def generate_function_block(self, fb: FunctionBlockDecl) -> str:
-        pass
+```typescript
+abstract class CodeGenerator {
+    abstract generateFunction(func: FunctionDecl): string;
+    abstract generateFunctionBlock(fb: FunctionBlockDecl): string;
+}
 
-class CppGenerator(CodeGenerator):
-    """C++ code generator"""
+class CppGenerator extends CodeGenerator {
+    generateFunction(func: FunctionDecl): string {
+        // Generate C++ function
+        return '';
+    }
     
-    def generate_function(self, func: FunctionDecl) -> str:
-        # Generate C++ function
-        pass
+    generateFunctionBlock(fb: FunctionBlockDecl): string {
+        // Generate C++ function block class
+        return '';
+    }
+}
 
-# Future: Could add other generators (C, LLVM IR, etc.)
+// Future: Could add other generators (C, LLVM IR, etc.)
 ```
 
 ### Error Handling
 
-STruC++ uses a hierarchical exception system:
+STruC++ uses a hierarchical error class system:
 
-```python
-class CompilerError(Exception):
-    """Base class for all compiler errors"""
-    def __init__(self, message: str, span: Optional[SourceSpan] = None):
-        self.message = message
-        self.span = span
-        super().__init__(self.format_message())
+```typescript
+class CompilerError extends Error {
+    constructor(
+        public readonly message: string,
+        public readonly span?: SourceSpan
+    ) {
+        super(CompilerError.formatMessage(message, span));
+        this.name = 'CompilerError';
+    }
     
-    def format_message(self) -> str:
-        if self.span:
-            return f"{self.span.file}:{self.span.start_line}:{self.span.start_col}: {self.message}"
-        return self.message
+    private static formatMessage(message: string, span?: SourceSpan): string {
+        if (span) {
+            return `${span.file}:${span.startLine}:${span.startCol}: ${message}`;
+        }
+        return message;
+    }
+}
 
-class SyntaxError(CompilerError):
-    """Syntax errors from parser"""
-    pass
+class SyntaxError extends CompilerError {
+    constructor(message: string, span?: SourceSpan) {
+        super(message, span);
+        this.name = 'SyntaxError';
+    }
+}
 
-class SemanticError(CompilerError):
-    """Semantic errors (type errors, undefined symbols, etc.)"""
-    pass
+class SemanticError extends CompilerError {
+    constructor(message: string, span?: SourceSpan) {
+        super(message, span);
+        this.name = 'SemanticError';
+    }
+}
 
-class CodeGenError(CompilerError):
-    """Code generation errors"""
-    pass
+class CodeGenError extends CompilerError {
+    constructor(message: string, span?: SourceSpan) {
+        super(message, span);
+        this.name = 'CodeGenError';
+    }
+}
 ```
 
 ### Configuration
 
 Compiler behavior is controlled by a configuration object:
 
-```python
-@dataclass
-class CompilerOptions:
-    """Compiler configuration"""
+```typescript
+interface CompilerOptions {
+    // Input/output
+    inputFile: string;
+    outputDir: string;
     
-    # Input/output
-    input_file: str
-    output_dir: str
+    // Language features
+    allowNestedComments?: boolean;  // IEC v3 feature (default: true)
+    allowReferences?: boolean;      // IEC v3 feature (default: true)
+    strictTyping?: boolean;         // default: true
     
-    # Language features
-    allow_nested_comments: bool = True  # IEC v3 feature
-    allow_references: bool = True       # IEC v3 feature
-    strict_typing: bool = True
+    // Code generation
+    generateLineDirectives?: boolean;   // default: false
+    generateSourceComments?: boolean;   // default: true
+    generateMappingFile?: boolean;      // default: true
+    optimizeLevel?: 0 | 1 | 2;          // 0=none, 1=basic, 2=aggressive
     
-    # Code generation
-    generate_line_directives: bool = False
-    generate_source_comments: bool = True
-    generate_mapping_file: bool = True
-    optimize_level: int = 0  # 0=none, 1=basic, 2=aggressive
-    
-    # Debug support
-    debug_mode: bool = False
-    verbose: bool = False
+    // Debug support
+    debugMode?: boolean;    // default: false
+    verbose?: boolean;      // default: false
+}
+
+const defaultOptions: Required<Omit<CompilerOptions, 'inputFile' | 'outputDir'>> = {
+    allowNestedComments: true,
+    allowReferences: true,
+    strictTyping: true,
+    generateLineDirectives: false,
+    generateSourceComments: true,
+    generateMappingFile: true,
+    optimizeLevel: 0,
+    debugMode: false,
+    verbose: false,
+};
 ```
 
 ## Summary
