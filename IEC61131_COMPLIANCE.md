@@ -60,20 +60,39 @@ Edition 3.0 adds significant new features that STruC++ implements from the groun
 
 ## Programming Languages
 
-IEC 61131-3 defines five programming languages. STruC++ focuses on textual representations.
+IEC 61131-3 defines five programming languages. **STruC++ compiles Structured Text (ST) exclusively.**
+
+### Language Scope: Structured Text Only
+
+**STruC++ supports only Structured Text (ST).** Other IEC 61131-3 languages (Instruction List, Function Block Diagram, Ladder Diagram, Sequential Function Chart) are **not** directly supported by STruC++.
+
+**How Other Languages Are Handled:**
+
+The OpenPLC Editor provides translation capabilities for all five IEC 61131-3 languages:
+- **IL (Instruction List)** → Translated to ST by OpenPLC Editor
+- **FBD (Function Block Diagram)** → Translated to ST by OpenPLC Editor  
+- **LD (Ladder Diagram)** → Translated to ST by OpenPLC Editor
+- **SFC (Sequential Function Chart)** → Translated to ST by OpenPLC Editor
+
+The editor performs these translations before invoking STruC++ for compilation. This architecture allows:
+- **Focused compiler design** - STruC++ can deeply optimize ST compilation
+- **Simpler maintenance** - Single language to support in the compiler
+- **Leveraging existing tools** - OpenPLC Editor already has mature translation capabilities
+- **Full language support** - Users can still program in all five languages via the editor
 
 ### Structured Text (ST)
 
-**Status**: ✅ Fully Supported (Primary Focus)
+**Status**: ✅ Fully Supported (Exclusive Focus)
 
-ST is the primary language for STruC++. All ST constructs are supported:
+ST is the sole language compiled by STruC++. All ST constructs are supported:
 
-- Variable declarations
+- Variable declarations (VAR, VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, VAR_EXTERNAL, VAR_GLOBAL)
 - Assignments
 - Expressions (arithmetic, logical, comparison)
 - Function and FB calls
 - Control structures (IF, CASE, FOR, WHILE, REPEAT)
 - Comments (single-line and multi-line, including nested)
+- Full project structure (CONFIGURATION, RESOURCE, TASK, program instances)
 
 **Example**:
 ```
@@ -89,44 +108,15 @@ PROGRAM Example
 END_PROGRAM
 ```
 
-### Instruction List (IL)
+### Other Languages: Not Supported
 
-**Status**: ⏳ Planned (Phase 5)
+**Instruction List (IL)**: ❌ Not supported by STruC++ (use OpenPLC Editor translation to ST)
 
-IL is a low-level assembly-like language. Support is planned but not in initial phases.
+**Function Block Diagram (FBD)**: ❌ Not supported by STruC++ (use OpenPLC Editor translation to ST)
 
-**Features**:
-- Stack-based operations
-- Accumulator model
-- Jump instructions
-- Function/FB calls
+**Ladder Diagram (LD)**: ❌ Not supported by STruC++ (use OpenPLC Editor translation to ST)
 
-### Function Block Diagram (FBD)
-
-**Status**: ⏳ Planned (Future)
-
-FBD is a graphical language. STruC++ may support FBD through:
-- Textual representation parsing
-- Integration with OpenPLC Editor's graphical editor
-- FBD-to-ST translation
-
-### Ladder Diagram (LD)
-
-**Status**: ⏳ Planned (Future)
-
-LD is a graphical language based on relay logic. Similar to FBD, support may be through textual representation or editor integration.
-
-### Sequential Function Chart (SFC)
-
-**Status**: ⏳ Planned (Phase 5)
-
-SFC defines state machines. The standard provides both graphical and textual representations.
-
-**Features**:
-- Steps and transitions
-- Actions and action qualifiers
-- Parallel branches
-- Sequential execution
+**Sequential Function Chart (SFC)**: ❌ Not supported by STruC++ (use OpenPLC Editor translation to ST)
 
 ## Data Types
 

@@ -19,6 +19,18 @@ This document describes the architecture of the STruC++ compiler, including the 
 
 ## Design Philosophy
 
+### Language Scope: Structured Text Only
+
+**STruC++ compiles IEC 61131-3 Structured Text (ST) exclusively.**
+
+Other IEC 61131-3 languages (Instruction List, Function Block Diagram, Ladder Diagram, Sequential Function Chart) are **not** directly supported by STruC++. These languages are handled by the OpenPLC Editor, which translates them to Structured Text before invoking STruC++ for compilation.
+
+This focused scope allows STruC++ to:
+- Provide deep, optimized support for ST semantics
+- Maintain a simpler, more maintainable architecture
+- Leverage the editor's existing translation capabilities
+- Focus on generating high-quality C++ from ST
+
 ### STruC++ as a Structured Translator
 
 **STruC++ is fundamentally a "smart syntax translator," not a heavy optimizing compiler.**
