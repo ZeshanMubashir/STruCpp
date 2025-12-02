@@ -1,0 +1,62 @@
+{
+  "name": "strucpp",
+  "version": "0.1.0-dev",
+  "description": "IEC 61131-3 Structured Text to C++ Compiler",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist/",
+    "prepublishOnly": "npm run build"
+  },
+  "bin": {
+    "strucpp": "./dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "runtime/"
+  ],
+  "keywords": [
+    "iec61131-3",
+    "plc",
+    "structured-text",
+    "compiler",
+    "code-generator",
+    "openplc"
+  ],
+  "author": "Autonomy Logic / OpenPLC Project <thiago.alves@autonomylogic.com>",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Autonomy-Logic/STruCpp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Autonomy-Logic/STruCpp/issues"
+  },
+  "homepage": "https://github.com/Autonomy-Logic/STruCpp#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "chevrotain": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

@@ -1238,7 +1238,7 @@ This architecture avoids:
 
 **Fixed Runtime Headers** (ship with STruC++):
 ```
-/usr/local/include/strucpp/    # Or Python site-packages/strucpp/include/
+/usr/local/include/strucpp/    # Or node_modules/strucpp/include/
 ├── iec_types.hpp              # All IEC type wrappers (IEC_INT, IEC_BOOL, etc.)
 ├── iec_traits.hpp             # Type categories and traits (AnyIntTag, etc.)
 ├── iec_runtime.hpp            # Core runtime functions (time, I/O, etc.)

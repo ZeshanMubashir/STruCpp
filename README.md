@@ -18,18 +18,19 @@ STruC++ aims to overcome the limitations of MatIEC while maintaining compatibili
 
 ### Primary Objectives
 
-1. **Modern Architecture** - Clean, maintainable Python codebase with clear separation of concerns
+1. **Modern Architecture** - Clean, maintainable TypeScript codebase with clear separation of concerns
 2. **IEC 61131-3 v3 Compliance** - Full support for version 3 features including references, nested comments, and modern type system
 3. **Line-by-Line Mapping** - Generate C++ code that maintains 1:1 correspondence with ST source for debugging
 4. **C++ Native** - Generate idiomatic C++ code leveraging classes, inheritance, and polymorphism
 5. **Real-Time Performance** - Produce efficient, deterministic code suitable for PLC applications
 6. **Maintainability** - Straightforward implementation that is easy to understand, extend, and debug
+7. **Browser-Ready** - Designed to run in both Node.js and browser environments for seamless editor integration
 
 ### Key Improvements Over MatIEC
 
 - **Simpler Architecture** - Multi-pass pipeline with explicit data structures instead of complex visitor patterns
 - **Better Type System** - C++ wrapper classes for IEC types instead of heavy macro-based access
-- **Modern Language** - Python implementation instead of C++, enabling faster development and better tooling
+- **Modern Language** - TypeScript implementation enabling type-safe development, browser compatibility, and seamless integration with OpenPLC Editor
 - **Enhanced Debugging** - Built-in support for source-level debugging with line mapping
 - **Cleaner Output** - Readable C++ code without excessive macro usage
 - **Extensibility** - Modular design allowing easy addition of new features and optimizations
@@ -86,17 +87,18 @@ For the complete implementation roadmap, see [IMPLEMENTATION_PHASES.md](IMPLEMEN
 
 ## Technology Stack
 
-- **Implementation Language**: Python 3.8+
-- **Parser**: Lark (LALR mode) - see [PARSER_SELECTION.md](PARSER_SELECTION.md) for rationale
+- **Implementation Language**: TypeScript 5.0+
+- **Parser**: Chevrotain - see [PARSER_SELECTION.md](PARSER_SELECTION.md) for rationale
 - **Target Language**: C++17 or later
-- **Build System**: Python setuptools/pip for compiler, CMake for C++ runtime
-- **Testing**: pytest for compiler tests, Google Test for C++ runtime tests
+- **Build System**: npm/pnpm for compiler, CMake for C++ runtime
+- **Testing**: Vitest for compiler tests, Google Test for C++ runtime tests
+- **Runtime**: Node.js 18+ or modern browsers (Chrome, Firefox, Safari, Edge)
 
 ## Getting Started
 
 ### Prerequisites
 
-- Python 3.8 or later
+- Node.js 18 or later
 - C++17 compatible compiler (for testing generated code)
 - Git
 
@@ -108,23 +110,39 @@ git clone https://github.com/Autonomy-Logic/strucpp.git
 cd strucpp
 
 # Install dependencies
-pip install -r requirements.txt
+npm install
 
-# Install STruC++
-pip install -e .
+# Build the compiler
+npm run build
 ```
 
 ### Usage (Future)
 
 ```bash
-# Compile an ST program to C++
-strucpp input.st -o output.cpp
+# Compile an ST program to C++ (CLI)
+npx strucpp input.st -o output.cpp
 
 # Compile with debug information
-strucpp input.st -o output.cpp --debug --line-mapping
+npx strucpp input.st -o output.cpp --debug --line-mapping
 
 # Show help
-strucpp --help
+npx strucpp --help
+```
+
+```typescript
+// Programmatic usage (Browser or Node.js)
+import { compile } from 'strucpp';
+
+const stSource = `
+PROGRAM Main
+  VAR counter : INT; END_VAR
+  counter := counter + 1;
+END_PROGRAM
+`;
+
+const result = compile(stSource, { debug: true, lineMapping: true });
+console.log(result.cppCode);
+console.log(result.lineMap);
 ```
 
 ## Project Structure
@@ -139,10 +157,10 @@ strucpp/
 ├── PARSER_SELECTION.md          # Parser library selection rationale
 ├── CPP_RUNTIME.md               # C++ runtime library design
 ├── LICENSE                      # License file
-├── setup.py                     # Python package setup
-├── requirements.txt             # Python dependencies
-├── strucpp/                     # Main compiler package
-│   ├── __init__.py
+├── package.json                 # Node.js package configuration
+├── tsconfig.json                # TypeScript configuration
+├── src/                         # Main compiler source
+│   ├── index.ts                 # Main entry point
 │   ├── frontend/                # Lexer and parser
 │   ├── semantic/                # Semantic analysis passes
 │   ├── ir/                      # Intermediate representation

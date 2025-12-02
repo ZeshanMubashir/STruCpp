@@ -423,7 +423,7 @@ private:
 
 ### 5. Maintainable Codebase
 
-**Improvement**: Well-organized Python code with clear structure.
+**Improvement**: Well-organized TypeScript code with clear structure.
 
 **STruC++ Organization**:
 ```
@@ -554,8 +554,8 @@ note: Variable 'x' declared as INT at line 5
 | Source Comments | ❌ | ✅ | STruC++ includes ST source |
 | Variable Names | Mangled | Preserved | STruC++ keeps original names |
 | **Architecture** |
-| Implementation Language | C++ | Python | STruC++ easier to maintain |
-| Parser | Flex/Bison | Lark | STruC++ more maintainable |
+| Implementation Language | C++ | TypeScript | STruC++ easier to maintain |
+| Parser | Flex/Bison | Chevrotain | STruC++ more maintainable |
 | Code Organization | Monolithic | Modular | STruC++ well-structured |
 | Documentation | Limited | Comprehensive | STruC++ well-documented |
 | **Performance** |
@@ -582,7 +582,7 @@ note: Variable 'x' declared as INT at line 5
 - No optimization passes
 
 **STruC++**:
-- Fast compilation (Python, but simple passes)
+- Fast compilation (TypeScript with optimized V8 engine)
 - Potential for parallelization
 - Optional optimization passes
 - Expected: Similar or slightly slower than MatIEC

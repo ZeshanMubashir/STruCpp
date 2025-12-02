@@ -58,7 +58,7 @@ For each phase to be considered complete:
   - ✅ MATIEC_COMPARISON.md with MatIEC analysis
   - ✅ PARSER_SELECTION.md with parser choice rationale
   - ✅ CPP_RUNTIME.md with C++ runtime design
-- ✅ Parser library selected (Lark)
+- ✅ Parser library selected (Chevrotain)
 - ✅ Technology stack finalized
 - ✅ Development environment setup guide
 
@@ -347,9 +347,9 @@ g++ -I/path/to/strucpp/include \
 ### Deliverables
 
 **Infrastructure**:
-- Project structure (strucpp/ package with submodules)
-- Build system (setup.py, requirements.txt)
-- Testing framework (pytest configuration)
+- Project structure (src/ directory with TypeScript modules)
+- Build system (package.json, tsconfig.json)
+- Testing framework (Vitest configuration)
 - CI/CD pipeline (GitHub Actions)
 
 **C++ Runtime Headers**:
@@ -513,7 +513,7 @@ def test_library_cache():
 
 #### 1. Project Structure Parsing
 
-**Use Lark Parser** (same parser as later phases, but only for structural constructs):
+**Use Chevrotain Parser** (same parser as later phases, but only for structural constructs):
 - Parse CONFIGURATION declarations
 - Parse RESOURCE declarations (with ON clause)
 - Parse TASK declarations (INTERVAL, PRIORITY)
@@ -522,46 +522,46 @@ def test_library_cache():
 - Parse PROGRAM headers (name, VAR declarations) but **ignore** program bodies
 
 **Build ProjectModel** from parsed AST:
-```python
-@dataclass
-class ProjectModel:
-    configurations: List[ConfigurationDecl]
-    programs: Dict[str, ProgramDecl]  # Program definitions (types)
-    functions: Dict[str, FunctionDecl]  # For later phases
-    function_blocks: Dict[str, FunctionBlockDecl]  # For later phases
+```typescript
+interface ProjectModel {
+    configurations: ConfigurationDecl[];
+    programs: Map<string, ProgramDecl>;  // Program definitions (types)
+    functions: Map<string, FunctionDecl>;  // For later phases
+    functionBlocks: Map<string, FunctionBlockDecl>;  // For later phases
+}
 
-@dataclass
-class ConfigurationDecl:
-    name: str
-    global_vars: List[VarDeclaration]
-    resources: List[ResourceDecl]
+interface ConfigurationDecl {
+    name: string;
+    globalVars: VarDeclaration[];
+    resources: ResourceDecl[];
+}
 
-@dataclass
-class ResourceDecl:
-    name: str
-    processor: str  # "PLC", "CPU", etc. from ON clause
-    tasks: List[TaskDecl]
+interface ResourceDecl {
+    name: string;
+    processor: string;  // "PLC", "CPU", etc. from ON clause
+    tasks: TaskDecl[];
+}
 
-@dataclass
-class TaskDecl:
-    name: str
-    interval: Optional[TimeValue]  # T#20ms, etc.
-    priority: Optional[int]
-    program_instances: List[ProgramInstanceDecl]
+interface TaskDecl {
+    name: string;
+    interval?: TimeValue;  // T#20ms, etc.
+    priority?: number;
+    programInstances: ProgramInstanceDecl[];
+}
 
-@dataclass
-class ProgramInstanceDecl:
-    instance_name: str
-    program_type: str  # References a ProgramDecl
-    task_name: str  # Which task this instance runs on
+interface ProgramInstanceDecl {
+    instanceName: string;
+    programType: string;  // References a ProgramDecl
+    taskName: string;  // Which task this instance runs on
+}
 
-@dataclass
-class ProgramDecl:
-    name: str
-    var_declarations: List[VarDeclaration]
-    var_external: List[VarExternalDeclaration]
-    body: Optional[StatementList]  # Phase 2: None (ignored)
-                                    # Phase 3+: Parsed and compiled
+interface ProgramDecl {
+    name: string;
+    varDeclarations: VarDeclaration[];
+    varExternal: VarExternalDeclaration[];
+    body?: StatementList;  // Phase 2: undefined (ignored)
+                           // Phase 3+: Parsed and compiled
+}
 ```
 
 #### 2. C++ Class Generation for Project Structure
@@ -756,14 +756,14 @@ for (size_t i = 0; i < g_num_configurations; i++) {
 ### Deliverables
 
 **Parser Extensions**:
-- Lark grammar for CONFIGURATION, RESOURCE, TASK syntax
-- Lark grammar for VAR_GLOBAL, VAR_EXTERNAL
-- Lark grammar for PROGRAM headers (without bodies)
+- Chevrotain grammar rules for CONFIGURATION, RESOURCE, TASK syntax
+- Chevrotain grammar rules for VAR_GLOBAL, VAR_EXTERNAL
+- Chevrotain grammar rules for PROGRAM headers (without bodies)
 - AST nodes for configuration elements
 
 **Project Model**:
-- Python classes for ProjectModel, ConfigurationDecl, ResourceDecl, TaskDecl, etc.
-- Builder that constructs ProjectModel from parsed AST
+- TypeScript interfaces for ProjectModel, ConfigurationDecl, ResourceDecl, TaskDecl, etc.
+- Builder that constructs ProjectModel from parsed CST
 - Validation logic for project structure
 
 **Code Generator (Structural)**:
@@ -894,7 +894,7 @@ Expected: Configuration has 2 tasks in resource, each pointing to correct progra
 - Phase 3 will use the program classes and structure created in Phase 2
 
 **Parsing Strategy**:
-- Use same Lark parser for everything (no second parser)
+- Use same Chevrotain parser for everything (no second parser)
 - Phase 2: Only parse structural constructs, ignore program bodies
 - Phase 3+: Extend to parse program bodies and compile ST code
 - Single grammar, incremental implementation
@@ -936,9 +936,9 @@ This phase fills in the `.run()` method for programs created in Phase 2.
 ### Deliverables
 
 **Frontend**:
-- Lark grammar for expression subset
+- Chevrotain grammar rules for expression subset
 - Lexer and parser implementation for ST expressions and assignments
-- AST node classes for expressions and statements
+- AST node interfaces for expressions and statements
 - Source location tracking
 
 **Semantic Analysis**:
