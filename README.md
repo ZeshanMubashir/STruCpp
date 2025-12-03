@@ -143,24 +143,35 @@ npm ci
 npm run build
 ```
 
-### Building the Standalone Executable
+### Building Standalone Binaries
 
-To create a single-file bundled executable that can be distributed without requiring users to install dependencies:
+To create standalone executables that can run on any machine without Node.js installed, use the `build:pkg` scripts. These use [pkg](https://github.com/vercel/pkg) to bundle Node.js with the compiler into a single binary.
 
 ```bash
-# Build the bundled executable
+# Build for all platforms (Linux, Windows, macOS)
+npm run build:pkg
+
+# Build for a specific platform
+npm run build:pkg:linux   # Creates dist/bin/strucpp-linux
+npm run build:pkg:win     # Creates dist/bin/strucpp-win.exe
+npm run build:pkg:macos   # Creates dist/bin/strucpp-macos
+```
+
+The resulting binaries (~45MB) include Node.js and all dependencies. They can be distributed and run directly without any prerequisites:
+
+```bash
+# Run the standalone binary (no Node.js required)
+./dist/bin/strucpp-linux --version
+./dist/bin/strucpp-linux --help
+```
+
+For development or if you have Node.js installed, you can also create a smaller bundled file (~5KB) that requires Node.js to run:
+
+```bash
+# Build the Node.js bundle (requires Node.js 18+ to run)
 npm run build:bundle
-```
-
-This creates `dist/strucpp-bundle.cjs`, a single CommonJS file (~5KB) that includes all dependencies. You can run it directly with Node.js:
-
-```bash
-# Run the bundled executable
 node dist/strucpp-bundle.cjs --help
-node dist/strucpp-bundle.cjs --version
 ```
-
-The bundled executable requires Node.js 18+ to run, but does not require `npm install` since all dependencies are bundled.
 
 ### Development Commands
 
