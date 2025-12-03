@@ -333,8 +333,20 @@ using IEC_DATE = IECVar<DATE_t>;
 using IEC_TOD = IECVar<TOD_t>;
 using IEC_DT = IECVar<DT_t>;
 
+// IEC v3 Long time types
+using IEC_LTIME = IECVar<LTIME_t>;
+using IEC_LDATE = IECVar<LDATE_t>;
+using IEC_LTOD = IECVar<LTOD_t>;
+using IEC_LDT = IECVar<LDT_t>;
+
+// Character types
+using IEC_CHAR = IECVar<CHAR_t>;
+using IEC_WCHAR = IECVar<WCHAR_t>;
+
 // Aliases for compatibility
 using IEC_TIME_OF_DAY = IEC_TOD;
 using IEC_DATE_AND_TIME = IEC_DT;
+using IEC_LONG_TIME_OF_DAY = IEC_LTOD;
+using IEC_LONG_DATE_AND_TIME = IEC_LDT;
 
 } // namespace strucpp
