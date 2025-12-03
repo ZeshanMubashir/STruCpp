@@ -38,8 +38,8 @@ public:
     /** Default constructor - initializes to zero/false */
     IECVar() noexcept : value_{}, forced_{false}, forced_value_{} {}
 
-    /** Construct with initial value */
-    explicit IECVar(T v) noexcept : value_{v}, forced_{false}, forced_value_{} {}
+    /** Construct with initial value (non-explicit to allow IEC_INT val = 10 syntax) */
+    IECVar(T v) noexcept : value_{v}, forced_{false}, forced_value_{} {}
 
     /** Copy constructor */
     IECVar(const IECVar&) = default;
