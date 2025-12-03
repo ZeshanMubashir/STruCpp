@@ -28,12 +28,14 @@ Design and implement the foundational C++ runtime architecture. This phase is di
 - [Phase 1.5: Composite Types](phase-1.5-composite-types.md) - Arrays, Structures, Enumerations
 - [Phase 1.6: Standard Functions and Library](phase-1.6-standard-functions.md) - Numeric, conversion, and variadic functions
 
-### Phase 2: Project Structure and Scheduling Model
-**Status**: PENDING | **Duration**: 3-4 weeks
+### Phase 2: Project Structure and User-Defined Types
+**Status**: PENDING | **Duration**: 5-7 weeks
 
-Parse IEC 61131-3 project structure and generate C++ class hierarchy for runtime scheduling.
+Parse IEC 61131-3 project structure and user-defined data types, generating C++ class hierarchy for runtime scheduling and type definitions.
 
-**Document**: [phase-2-project-structure.md](phase-2-project-structure.md)
+**Sub-phases**:
+- [Phase 2.1: Project Structure and Scheduling Model](phase-2.1-project-structure.md) - Parse CONFIGURATION, RESOURCE, TASK, program instances
+- [Phase 2.2: User-Defined Data Types](phase-2.2-user-data-types.md) - Parse TYPE declarations (enumerations, structures, arrays, subranges)
 
 ### Phase 3: Core ST Translation
 **Status**: PENDING | **Duration**: 4-6 weeks
