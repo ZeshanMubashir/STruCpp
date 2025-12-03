@@ -1,4 +1,4 @@
-# Phase 2: Project Structure and Scheduling Model
+# Phase 2.1: Project Structure and Scheduling Model
 
 **Status**: PENDING
 
@@ -8,14 +8,18 @@
 
 ## Overview
 
-This phase builds the project model and generates C++ skeleton for the structural and scheduling aspects of an IEC project. It focuses purely on the *shape* of the project (what configs, resources, tasks, and instances exist), not the *behavior* (ST code inside programs).
+This sub-phase builds the project model and generates C++ skeleton for the structural and scheduling aspects of an IEC project. It focuses purely on the *shape* of the project (what configs, resources, tasks, and instances exist), not the *behavior* (ST code inside programs).
+
+Phase 2 is divided into two sub-phases:
+- **Phase 2.1** (this document): Project structure parsing and C++ class hierarchy generation
+- **Phase 2.2**: User-defined data type parsing (TYPE declarations for enumerations, structures, arrays, and subranges)
 
 ## Rationale: Why This Phase Comes Before ST Compilation
 
 The IEC project structure (Config -> Resource -> Task -> Instance) is declarative and predictable. We can parse and generate this structure independently from the ST code compilation, which provides several benefits:
 
 1. **Testability** - Can validate project structure generation even with empty .run() methods
-2. **Clear Separation** - Structure (Phase 2) vs. Behavior (Phase 3+)
+2. **Clear Separation** - Structure (Phase 2.1) vs. User Types (Phase 2.2) vs. Behavior (Phase 3+)
 3. **Runtime Integration** - Runtime can iterate over configs/resources/tasks without knowing ST details
 4. **Incremental Development** - Smaller, focused phases are easier to implement and test
 
@@ -260,14 +264,15 @@ Expected: `Program_MyProgram` class has `IEC_INT& counter` reference.
 
 ## Notes
 
-### What Phase 2 Does NOT Include
+### What Phase 2.1 Does NOT Include
 - No ST code compilation (expressions, statements, control flow)
 - No semantic analysis of program bodies
 - No type checking of ST expressions
 - No code generation for .run() method bodies
 - No function or function block compilation
+- No user-defined TYPE declarations (covered in Phase 2.2)
 
-### What Phase 2 DOES Include
+### What Phase 2.1 DOES Include
 - Parse project structure (Config/Resource/Task/Instance)
 - Parse VAR_GLOBAL and VAR_EXTERNAL declarations
 - Parse PROGRAM headers (name, VAR declarations)
@@ -277,4 +282,5 @@ Expected: `Program_MyProgram` class has `IEC_INT& counter` reference.
 
 ### Relationship to Other Phases
 - **Phase 1**: Uses IEC type wrappers and runtime base classes
+- **Phase 2.2**: Adds user-defined data type parsing (TYPE declarations)
 - **Phase 3**: Will fill in .run() method implementations with compiled ST code
