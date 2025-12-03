@@ -172,7 +172,7 @@ export function parseTimeLiteral(literal: string): TimeValue {
 
   for (const { regex, multiplier } of patterns) {
     const match = value.match(regex);
-    if (match) {
+    if (match && match[1] !== undefined) {
       nanoseconds += parseFloat(match[1]) * multiplier;
       value = value.replace(regex, "");
     }
@@ -437,10 +437,11 @@ export class ProjectModelBuilder {
         }
       } else {
         // Program instance without task - add to first task or create warning
-        if (tasks.length > 0) {
-          tasks[0].programInstances.push(instanceDecl);
+        const firstTask = tasks[0];
+        if (firstTask !== undefined) {
+          firstTask.programInstances.push(instanceDecl);
           this.addWarning(
-            `Program instance '${instance.instanceName}' has no task assignment, assigned to '${tasks[0].name}'`,
+            `Program instance '${instance.instanceName}' has no task assignment, assigned to '${firstTask.name}'`,
             instance.sourceSpan.startLine,
             instance.sourceSpan.startCol,
           );
@@ -472,11 +473,12 @@ export class ProjectModelBuilder {
       }
     }
 
+    // Use conditional spreading for optional properties to comply with exactOptionalPropertyTypes
     return {
       name: task.name,
-      interval,
-      priority,
       programInstances: [],
+      ...(interval !== undefined ? { interval } : {}),
+      ...(priority !== undefined ? { priority } : {}),
     };
   }
 
@@ -484,10 +486,11 @@ export class ProjectModelBuilder {
    * Process a program instance.
    */
   private processProgramInstance(instance: ProgramInstance, _configName: string): ProgramInstanceDecl {
+    // Use conditional spreading for optional taskName to comply with exactOptionalPropertyTypes
     return {
       instanceName: instance.instanceName,
       programType: instance.programType,
-      taskName: instance.taskName,
+      ...(instance.taskName !== undefined ? { taskName: instance.taskName } : {}),
     };
   }
 
@@ -554,13 +557,14 @@ export class ProjectModelBuilder {
       initialValue = this.expressionToString(decl.initialValue);
     }
 
+    // Use conditional spreading for optional properties to comply with exactOptionalPropertyTypes
     return {
       name,
       typeName: decl.type.name,
-      initialValue,
       isConstant: block.isConstant,
       isRetain: block.isRetain,
-      address: decl.address,
+      ...(initialValue !== undefined ? { initialValue } : {}),
+      ...(decl.address !== undefined ? { address: decl.address } : {}),
     };
   }
 

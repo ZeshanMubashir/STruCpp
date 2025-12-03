@@ -78,6 +78,22 @@ export function compile(
 
   // Phase 2: Build AST from CST
   let ast: CompilationUnit;
+  if (!parseResult.cst) {
+    errors.push({
+      message: "Parse failed: no CST produced",
+      line: 0,
+      column: 0,
+      severity: "error",
+    });
+    return {
+      success: false,
+      cppCode: "",
+      headerCode: "",
+      lineMap: new Map(),
+      errors,
+      warnings,
+    };
+  }
   try {
     ast = buildAST(parseResult.cst);
   } catch (e) {
@@ -174,6 +190,15 @@ export function parse(source: string): { ast?: CompilationUnit; errors: CompileE
   }
 
   // Build AST from CST
+  if (!parseResult.cst) {
+    errors.push({
+      message: "Parse failed: no CST produced",
+      line: 0,
+      column: 0,
+      severity: "error",
+    });
+    return { errors };
+  }
   try {
     const ast = buildAST(parseResult.cst);
     return { ast, errors };

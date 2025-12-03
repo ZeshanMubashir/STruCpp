@@ -73,7 +73,9 @@ function nodeToSourceSpan(node: CstNode): SourceSpan {
   let endCol = 0;
 
   for (const key of Object.keys(children)) {
-    for (const child of children[key]) {
+    const childArray = children[key];
+    if (!childArray) continue;
+    for (const child of childArray) {
       if ("image" in child) {
         // It's a token
         if (child.startLine !== undefined && child.startLine < startLine) {
@@ -103,7 +105,7 @@ function nodeToSourceSpan(node: CstNode): SourceSpan {
 function getFirstToken(items: (CstNode | IToken)[] | undefined): IToken | undefined {
   if (!items || items.length === 0) return undefined;
   const first = items[0];
-  if ("image" in first) return first;
+  if (first && "image" in first) return first;
   return undefined;
 }
 
@@ -113,7 +115,7 @@ function getFirstToken(items: (CstNode | IToken)[] | undefined): IToken | undefi
 function getFirstNode(items: (CstNode | IToken)[] | undefined): CstNode | undefined {
   if (!items || items.length === 0) return undefined;
   const first = items[0];
-  if ("children" in first) return first;
+  if (first && "children" in first) return first;
   return undefined;
 }
 
@@ -373,10 +375,14 @@ export class ASTBuilder {
 
     // Skip the first identifier (task name), then pair remaining identifiers with expressions
     for (let i = 1; i < propIdentifiers.length && i - 1 < expressions.length; i++) {
-      const propName = propIdentifiers[i].image;
-      const expr = this.buildExpression(expressions[i - 1]);
-      if (expr) {
-        properties.set(propName, expr);
+      const propToken = propIdentifiers[i];
+      const exprNode = expressions[i - 1];
+      if (propToken && exprNode) {
+        const propName = propToken.image;
+        const expr = this.buildExpression(exprNode);
+        if (expr) {
+          properties.set(propName, expr);
+        }
       }
     }
 
@@ -410,12 +416,13 @@ export class ASTBuilder {
       programType = identifiers[1]?.image ?? "";
     }
 
+    // Use conditional spreading for optional taskName to comply with exactOptionalPropertyTypes
     return {
       kind: "ProgramInstance",
       sourceSpan: nodeToSourceSpan(node),
       instanceName,
-      taskName,
       programType,
+      ...(taskName !== undefined ? { taskName } : {}),
     };
   }
 
@@ -469,7 +476,8 @@ export class ASTBuilder {
       // Fallback: look for type name in identifiers
       // In "x : INT", the type is the last identifier after the colon
       const typeIdentifiers = getAllTokens(children.Identifier);
-      const typeName = typeIdentifiers.length > 0 ? typeIdentifiers[typeIdentifiers.length - 1].image : "INT";
+      const lastTypeIdent = typeIdentifiers[typeIdentifiers.length - 1];
+      const typeName = lastTypeIdent?.image ?? "INT";
       type = {
         kind: "TypeReference",
         sourceSpan: nodeToSourceSpan(node),
@@ -482,7 +490,10 @@ export class ASTBuilder {
     let initialValue: Expression | undefined;
     const exprNode = getFirstNode(children.expression);
     if (exprNode) {
-      initialValue = this.buildExpression(exprNode);
+      const expr = this.buildExpression(exprNode);
+      if (expr) {
+        initialValue = expr;
+      }
     }
 
     // Get address if present (AT %IX0.0)
@@ -495,13 +506,14 @@ export class ASTBuilder {
       }
     }
 
+    // Use conditional spreading for optional properties to comply with exactOptionalPropertyTypes
     return {
       kind: "VarDeclaration",
       sourceSpan: nodeToSourceSpan(node),
       names,
       type,
-      initialValue,
-      address,
+      ...(initialValue !== undefined ? { initialValue } : {}),
+      ...(address !== undefined ? { address } : {}),
     };
   }
 
@@ -566,7 +578,8 @@ export class ASTBuilder {
     const exprNode = getFirstNode(children.expression);
 
     const target = variableNode ? this.buildVariableExpression(variableNode) : this.createDummyVariable(node);
-    const value = exprNode ? this.buildExpression(exprNode) : this.createDummyLiteral(node);
+    const valueExpr = exprNode ? this.buildExpression(exprNode) : undefined;
+    const value = valueExpr ?? this.createDummyLiteral(node);
 
     return {
       kind: "AssignmentStatement",
@@ -609,9 +622,9 @@ export class ASTBuilder {
     const controlVariable = identifiers[0]?.image ?? "i";
 
     const expressions = getAllNodes(children.expression);
-    const start = expressions[0] ? this.buildExpression(expressions[0]) : this.createDummyLiteral(node);
-    const end = expressions[1] ? this.buildExpression(expressions[1]) : this.createDummyLiteral(node);
-    const step = expressions[2] ? this.buildExpression(expressions[2]) : undefined;
+    const startExpr = expressions[0] ? this.buildExpression(expressions[0]) : undefined;
+    const endExpr = expressions[1] ? this.buildExpression(expressions[1]) : undefined;
+    const stepExpr = expressions[2] ? this.buildExpression(expressions[2]) : undefined;
 
     const body: Statement[] = [];
     for (const stmtNode of getAllNodes(children.statement)) {
@@ -619,14 +632,15 @@ export class ASTBuilder {
       if (stmt) body.push(stmt);
     }
 
+    // Use conditional spreading for optional step to comply with exactOptionalPropertyTypes
     return {
       kind: "ForStatement",
       sourceSpan: nodeToSourceSpan(node),
       controlVariable,
-      start: start!,
-      end: end!,
-      step,
+      start: startExpr ?? this.createDummyLiteral(node),
+      end: endExpr ?? this.createDummyLiteral(node),
       body,
+      ...(stepExpr !== undefined ? { step: stepExpr } : {}),
     };
   }
 
@@ -745,11 +759,15 @@ export class ASTBuilder {
       return this.buildXorExpression(node);
     }
 
-    let left = this.buildXorExpression(xorExprs[0]);
+    const firstXorExpr = xorExprs[0];
+    if (!firstXorExpr) return undefined;
+    let left = this.buildXorExpression(firstXorExpr);
     if (!left) return undefined;
 
     for (let i = 1; i < xorExprs.length; i++) {
-      const right = this.buildXorExpression(xorExprs[i]);
+      const xorExpr = xorExprs[i];
+      if (!xorExpr) continue;
+      const right = this.buildXorExpression(xorExpr);
       if (!right) continue;
 
       left = {
@@ -775,11 +793,15 @@ export class ASTBuilder {
       return this.buildAndExpression(node);
     }
 
-    let left = this.buildAndExpression(andExprs[0]);
+    const firstAndExpr = andExprs[0];
+    if (!firstAndExpr) return undefined;
+    let left = this.buildAndExpression(firstAndExpr);
     if (!left) return undefined;
 
     for (let i = 1; i < andExprs.length; i++) {
-      const right = this.buildAndExpression(andExprs[i]);
+      const andExpr = andExprs[i];
+      if (!andExpr) continue;
+      const right = this.buildAndExpression(andExpr);
       if (!right) continue;
 
       left = {
@@ -805,11 +827,15 @@ export class ASTBuilder {
       return this.buildComparisonExpression(node);
     }
 
-    let left = this.buildComparisonExpression(compExprs[0]);
+    const firstCompExpr = compExprs[0];
+    if (!firstCompExpr) return undefined;
+    let left = this.buildComparisonExpression(firstCompExpr);
     if (!left) return undefined;
 
     for (let i = 1; i < compExprs.length; i++) {
-      const right = this.buildComparisonExpression(compExprs[i]);
+      const compExpr = compExprs[i];
+      if (!compExpr) continue;
+      const right = this.buildComparisonExpression(compExpr);
       if (!right) continue;
 
       left = {
@@ -835,7 +861,9 @@ export class ASTBuilder {
       return this.buildAddExpression(node);
     }
 
-    let left = this.buildAddExpression(addExprs[0]);
+    const firstAddExpr = addExprs[0];
+    if (!firstAddExpr) return undefined;
+    let left = this.buildAddExpression(firstAddExpr);
     if (!left) return undefined;
 
     // Get comparison operators
@@ -848,7 +876,9 @@ export class ASTBuilder {
     if (children.GreaterEqual) operators.push(">=");
 
     for (let i = 1; i < addExprs.length; i++) {
-      const right = this.buildAddExpression(addExprs[i]);
+      const addExpr = addExprs[i];
+      if (!addExpr) continue;
+      const right = this.buildAddExpression(addExpr);
       if (!right) continue;
 
       const op = operators[i - 1] ?? "=";
@@ -875,7 +905,9 @@ export class ASTBuilder {
       return this.buildMulExpression(node);
     }
 
-    let left = this.buildMulExpression(mulExprs[0]);
+    const firstMulExpr = mulExprs[0];
+    if (!firstMulExpr) return undefined;
+    let left = this.buildMulExpression(firstMulExpr);
     if (!left) return undefined;
 
     // Get add/sub operators
@@ -883,7 +915,9 @@ export class ASTBuilder {
     const minusTokens = getAllTokens(children.Minus);
 
     for (let i = 1; i < mulExprs.length; i++) {
-      const right = this.buildMulExpression(mulExprs[i]);
+      const mulExpr = mulExprs[i];
+      if (!mulExpr) continue;
+      const right = this.buildMulExpression(mulExpr);
       if (!right) continue;
 
       // Determine operator based on token positions
@@ -911,11 +945,15 @@ export class ASTBuilder {
       return this.buildPowerExpression(node);
     }
 
-    let left = this.buildPowerExpression(powerExprs[0]);
+    const firstPowerExpr = powerExprs[0];
+    if (!firstPowerExpr) return undefined;
+    let left = this.buildPowerExpression(firstPowerExpr);
     if (!left) return undefined;
 
     for (let i = 1; i < powerExprs.length; i++) {
-      const right = this.buildPowerExpression(powerExprs[i]);
+      const powerExpr = powerExprs[i];
+      if (!powerExpr) continue;
+      const right = this.buildPowerExpression(powerExpr);
       if (!right) continue;
 
       // Determine operator
@@ -946,11 +984,15 @@ export class ASTBuilder {
       return this.buildUnaryExpression(node);
     }
 
-    let left = this.buildUnaryExpression(unaryExprs[0]);
+    const firstUnaryExpr = unaryExprs[0];
+    if (!firstUnaryExpr) return undefined;
+    let left = this.buildUnaryExpression(firstUnaryExpr);
     if (!left) return undefined;
 
     for (let i = 1; i < unaryExprs.length; i++) {
-      const right = this.buildUnaryExpression(unaryExprs[i]);
+      const unaryExpr = unaryExprs[i];
+      if (!unaryExpr) continue;
+      const right = this.buildUnaryExpression(unaryExpr);
       if (!right) continue;
 
       left = {
