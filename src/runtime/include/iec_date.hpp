@@ -54,21 +54,21 @@ public:
         year = 100 * b + d - 4800 + m / 10;
     }
 
-    constexpr int year() const noexcept {
-        int y, m, d;
-        const_cast<DateValue*>(this)->to_ymd(y, m, d);
+    int year() const noexcept {
+        int y = 0, m = 0, d = 0;
+        to_ymd(y, m, d);
         return y;
     }
 
-    constexpr int month() const noexcept {
-        int y, m, d;
-        const_cast<DateValue*>(this)->to_ymd(y, m, d);
+    int month() const noexcept {
+        int y = 0, m = 0, d = 0;
+        to_ymd(y, m, d);
         return m;
     }
 
-    constexpr int day() const noexcept {
-        int y, m, d;
-        const_cast<DateValue*>(this)->to_ymd(y, m, d);
+    int day() const noexcept {
+        int y = 0, m = 0, d = 0;
+        to_ymd(y, m, d);
         return d;
     }
 
@@ -76,9 +76,9 @@ public:
         return static_cast<int>((days_since_epoch_ + 4) % 7);
     }
 
-    constexpr int day_of_year() const noexcept {
-        int y, m, d;
-        const_cast<DateValue*>(this)->to_ymd(y, m, d);
+    int day_of_year() const noexcept {
+        int y = 0, m = 0, d = 0;
+        to_ymd(y, m, d);
         DateValue jan1 = from_ymd(y, 1, 1);
         return static_cast<int>(days_since_epoch_ - jan1.days_since_epoch_) + 1;
     }
@@ -229,17 +229,17 @@ inline constexpr int64_t DATE_TO_DAYS(const DateValue<T>& d) noexcept {
 }
 
 template<typename T>
-inline constexpr int YEAR(const DateValue<T>& d) noexcept {
+inline int YEAR(const DateValue<T>& d) noexcept {
     return d.year();
 }
 
 template<typename T>
-inline constexpr int MONTH(const DateValue<T>& d) noexcept {
+inline int MONTH(const DateValue<T>& d) noexcept {
     return d.month();
 }
 
 template<typename T>
-inline constexpr int DAY(const DateValue<T>& d) noexcept {
+inline int DAY(const DateValue<T>& d) noexcept {
     return d.day();
 }
 
@@ -249,7 +249,7 @@ inline constexpr int DAY_OF_WEEK(const DateValue<T>& d) noexcept {
 }
 
 template<typename T>
-inline constexpr int DAY_OF_YEAR(const DateValue<T>& d) noexcept {
+inline int DAY_OF_YEAR(const DateValue<T>& d) noexcept {
     return d.day_of_year();
 }
 

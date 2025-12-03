@@ -113,21 +113,21 @@ public:
         millisecond = static_cast<int>((tod_ns % NS_PER_S) / NS_PER_MS);
     }
 
-    constexpr int year() const noexcept {
-        int y, m, d, h, mi, s, ms;
-        const_cast<DateTimeValue*>(this)->to_components(y, m, d, h, mi, s, ms);
+    int year() const noexcept {
+        int y = 0, m = 0, d = 0, h = 0, mi = 0, s = 0, ms = 0;
+        to_components(y, m, d, h, mi, s, ms);
         return y;
     }
 
-    constexpr int month() const noexcept {
-        int y, m, d, h, mi, s, ms;
-        const_cast<DateTimeValue*>(this)->to_components(y, m, d, h, mi, s, ms);
+    int month() const noexcept {
+        int y = 0, m = 0, d = 0, h = 0, mi = 0, s = 0, ms = 0;
+        to_components(y, m, d, h, mi, s, ms);
         return m;
     }
 
-    constexpr int day() const noexcept {
-        int y, m, d, h, mi, s, ms;
-        const_cast<DateTimeValue*>(this)->to_components(y, m, d, h, mi, s, ms);
+    int day() const noexcept {
+        int y = 0, m = 0, d = 0, h = 0, mi = 0, s = 0, ms = 0;
+        to_components(y, m, d, h, mi, s, ms);
         return d;
     }
 
@@ -332,17 +332,17 @@ inline constexpr int64_t DT_TO_NS(const DateTimeValue<T>& dt) noexcept {
 }
 
 template<typename T>
-inline constexpr int DT_YEAR(const DateTimeValue<T>& dt) noexcept {
+inline int DT_YEAR(const DateTimeValue<T>& dt) noexcept {
     return dt.year();
 }
 
 template<typename T>
-inline constexpr int DT_MONTH(const DateTimeValue<T>& dt) noexcept {
+inline int DT_MONTH(const DateTimeValue<T>& dt) noexcept {
     return dt.month();
 }
 
 template<typename T>
-inline constexpr int DT_DAY(const DateTimeValue<T>& dt) noexcept {
+inline int DT_DAY(const DateTimeValue<T>& dt) noexcept {
     return dt.day();
 }
 
