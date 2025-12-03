@@ -102,7 +102,9 @@ function nodeToSourceSpan(node: CstNode): SourceSpan {
 /**
  * Get the first token from a CST node children array.
  */
-function getFirstToken(items: (CstNode | IToken)[] | undefined): IToken | undefined {
+function getFirstToken(
+  items: (CstNode | IToken)[] | undefined,
+): IToken | undefined {
   if (!items || items.length === 0) return undefined;
   const first = items[0];
   if (first && "image" in first) return first;
@@ -112,7 +114,9 @@ function getFirstToken(items: (CstNode | IToken)[] | undefined): IToken | undefi
 /**
  * Get the first CST node from a children array.
  */
-function getFirstNode(items: (CstNode | IToken)[] | undefined): CstNode | undefined {
+function getFirstNode(
+  items: (CstNode | IToken)[] | undefined,
+): CstNode | undefined {
   if (!items || items.length === 0) return undefined;
   const first = items[0];
   if (first && "children" in first) return first;
@@ -244,7 +248,9 @@ export class ASTBuilder {
       name,
       returnType: {
         kind: "TypeReference",
-        sourceSpan: identifiers[1] ? tokenToSourceSpan(identifiers[1]) : nodeToSourceSpan(node),
+        sourceSpan: identifiers[1]
+          ? tokenToSourceSpan(identifiers[1])
+          : nodeToSourceSpan(node),
         name: returnTypeName,
         isReference: false,
       },
@@ -374,7 +380,11 @@ export class ASTBuilder {
     const expressions = getAllNodes(children.expression);
 
     // Skip the first identifier (task name), then pair remaining identifiers with expressions
-    for (let i = 1; i < propIdentifiers.length && i - 1 < expressions.length; i++) {
+    for (
+      let i = 1;
+      i < propIdentifiers.length && i - 1 < expressions.length;
+      i++
+    ) {
       const propToken = propIdentifiers[i];
       const exprNode = expressions[i - 1];
       if (propToken && exprNode) {
@@ -542,7 +552,9 @@ export class ASTBuilder {
 
     // Check for different statement types
     if (children.assignmentStatement) {
-      return this.buildAssignmentStatement(getFirstNode(children.assignmentStatement)!);
+      return this.buildAssignmentStatement(
+        getFirstNode(children.assignmentStatement)!,
+      );
     }
     if (children.ifStatement) {
       return this.buildIfStatement(getFirstNode(children.ifStatement)!);
@@ -577,7 +589,9 @@ export class ASTBuilder {
     const variableNode = getFirstNode(children.variable);
     const exprNode = getFirstNode(children.expression);
 
-    const target = variableNode ? this.buildVariableExpression(variableNode) : this.createDummyVariable(node);
+    const target = variableNode
+      ? this.buildVariableExpression(variableNode)
+      : this.createDummyVariable(node);
     const valueExpr = exprNode ? this.buildExpression(exprNode) : undefined;
     const value = valueExpr ?? this.createDummyLiteral(node);
 
@@ -595,7 +609,9 @@ export class ASTBuilder {
   buildIfStatement(node: CstNode): IfStatement {
     const children = node.children as CstChildren;
     const exprNode = getFirstNode(children.expression);
-    const condition = exprNode ? this.buildExpression(exprNode) : this.createDummyLiteral(node);
+    const condition = exprNode
+      ? this.buildExpression(exprNode)
+      : this.createDummyLiteral(node);
 
     const thenStatements: Statement[] = [];
     for (const stmtNode of getAllNodes(children.statement)) {
@@ -622,9 +638,15 @@ export class ASTBuilder {
     const controlVariable = identifiers[0]?.image ?? "i";
 
     const expressions = getAllNodes(children.expression);
-    const startExpr = expressions[0] ? this.buildExpression(expressions[0]) : undefined;
-    const endExpr = expressions[1] ? this.buildExpression(expressions[1]) : undefined;
-    const stepExpr = expressions[2] ? this.buildExpression(expressions[2]) : undefined;
+    const startExpr = expressions[0]
+      ? this.buildExpression(expressions[0])
+      : undefined;
+    const endExpr = expressions[1]
+      ? this.buildExpression(expressions[1])
+      : undefined;
+    const stepExpr = expressions[2]
+      ? this.buildExpression(expressions[2])
+      : undefined;
 
     const body: Statement[] = [];
     for (const stmtNode of getAllNodes(children.statement)) {
@@ -650,7 +672,9 @@ export class ASTBuilder {
   buildWhileStatement(node: CstNode): WhileStatement {
     const children = node.children as CstChildren;
     const exprNode = getFirstNode(children.expression);
-    const condition = exprNode ? this.buildExpression(exprNode) : this.createDummyLiteral(node);
+    const condition = exprNode
+      ? this.buildExpression(exprNode)
+      : this.createDummyLiteral(node);
 
     const body: Statement[] = [];
     for (const stmtNode of getAllNodes(children.statement)) {
@@ -672,7 +696,9 @@ export class ASTBuilder {
   buildRepeatStatement(node: CstNode): RepeatStatement {
     const children = node.children as CstChildren;
     const exprNode = getFirstNode(children.expression);
-    const condition = exprNode ? this.buildExpression(exprNode) : this.createDummyLiteral(node);
+    const condition = exprNode
+      ? this.buildExpression(exprNode)
+      : this.createDummyLiteral(node);
 
     const body: Statement[] = [];
     for (const stmtNode of getAllNodes(children.statement)) {
@@ -694,7 +720,9 @@ export class ASTBuilder {
   buildCaseStatement(node: CstNode): CaseStatement {
     const children = node.children as CstChildren;
     const exprNode = getFirstNode(children.expression);
-    const selector = exprNode ? this.buildExpression(exprNode) : this.createDummyLiteral(node);
+    const selector = exprNode
+      ? this.buildExpression(exprNode)
+      : this.createDummyLiteral(node);
 
     return {
       kind: "CaseStatement",
@@ -921,7 +949,8 @@ export class ASTBuilder {
       if (!right) continue;
 
       // Determine operator based on token positions
-      const op: BinaryOperator = plusTokens.length > minusTokens.length ? "+" : "-";
+      const op: BinaryOperator =
+        plusTokens.length > minusTokens.length ? "+" : "-";
       left = {
         kind: "BinaryExpression",
         sourceSpan: nodeToSourceSpan(node),
@@ -1064,7 +1093,9 @@ export class ASTBuilder {
 
     // Check for primary expression
     if (children.primaryExpression) {
-      return this.buildPrimaryExpression(getFirstNode(children.primaryExpression)!);
+      return this.buildPrimaryExpression(
+        getFirstNode(children.primaryExpression)!,
+      );
     }
 
     // Try to extract a literal or variable directly

@@ -148,7 +148,11 @@ export class CodeGenerator {
     for (const config of ast.configurations) {
       this.emitHeader(`class Configuration_${config.name};`);
     }
-    if (ast.functionBlocks.length > 0 || ast.programs.length > 0 || ast.configurations.length > 0) {
+    if (
+      ast.functionBlocks.length > 0 ||
+      ast.programs.length > 0 ||
+      ast.configurations.length > 0
+    ) {
       this.emitHeader("");
     }
 
@@ -498,7 +502,9 @@ export class CodeGenerator {
     // Run method
     this.emit(`void Program_${prog.name}::run() {`);
     if (this.options.sourceComments) {
-      this.emit("    // Phase 2.1: Empty stub - body will be compiled in Phase 3+");
+      this.emit(
+        "    // Phase 2.1: Empty stub - body will be compiled in Phase 3+",
+      );
     }
     this.emit("}");
     this.emit("");
@@ -507,8 +513,12 @@ export class CodeGenerator {
   /**
    * Generate header declaration for a configuration from the project model.
    */
-  private generateConfigurationHeaderFromModel(config: ConfigurationDecl): void {
-    this.emitHeader(`class Configuration_${config.name} : public ConfigurationInstance {`);
+  private generateConfigurationHeaderFromModel(
+    config: ConfigurationDecl,
+  ): void {
+    this.emitHeader(
+      `class Configuration_${config.name} : public ConfigurationInstance {`,
+    );
     this.emitHeader("public:");
 
     // Generate VAR_GLOBAL members
@@ -525,7 +535,9 @@ export class CodeGenerator {
     if (allInstances.length > 0) {
       this.emitHeader("    // Program instances");
       for (const inst of allInstances) {
-        this.emitHeader(`    Program_${inst.programType} ${inst.instanceName};`);
+        this.emitHeader(
+          `    Program_${inst.programType} ${inst.instanceName};`,
+        );
       }
       this.emitHeader("");
     }
@@ -536,11 +548,15 @@ export class CodeGenerator {
     if (taskCount > 0) {
       this.emitHeader("    // Task storage");
       this.emitHeader(`    TaskInstance tasks_storage[${taskCount}];`);
-      this.emitHeader(`    ProgramBase* task_programs_storage[${allInstances.length > 0 ? allInstances.length : 1}];`);
+      this.emitHeader(
+        `    ProgramBase* task_programs_storage[${allInstances.length > 0 ? allInstances.length : 1}];`,
+      );
     }
     if (resourceCount > 0) {
       this.emitHeader("    // Resource storage");
-      this.emitHeader(`    ResourceInstance resources_storage[${resourceCount}];`);
+      this.emitHeader(
+        `    ResourceInstance resources_storage[${resourceCount}];`,
+      );
     }
     this.emitHeader("");
 
@@ -562,7 +578,9 @@ export class CodeGenerator {
   /**
    * Generate implementation for a configuration from the project model.
    */
-  private generateConfigurationImplementationFromModel(config: ConfigurationDecl): void {
+  private generateConfigurationImplementationFromModel(
+    config: ConfigurationDecl,
+  ): void {
     const allInstances = this.collectProgramInstances(config);
 
     // Constructor
@@ -579,7 +597,9 @@ export class CodeGenerator {
 
     // Initialize program instances (with external variable references)
     for (const inst of allInstances) {
-      const prog = this.projectModel?.programs.get(inst.programType.toUpperCase());
+      const prog = this.projectModel?.programs.get(
+        inst.programType.toUpperCase(),
+      );
       if (prog && prog.varExternal.length > 0) {
         // Pass references to global variables
         const args = prog.varExternal.map((ext) => ext.name).join(", ");
@@ -612,7 +632,9 @@ export class CodeGenerator {
 
         // Store program pointers for this task
         for (const inst of task.programInstances) {
-          this.emit(`    task_programs_storage[${programIndex}] = &${inst.instanceName};`);
+          this.emit(
+            `    task_programs_storage[${programIndex}] = &${inst.instanceName};`,
+          );
           programIndex++;
         }
 
@@ -644,13 +666,17 @@ export class CodeGenerator {
     this.emit("");
 
     // get_resources()
-    this.emit(`ResourceInstance* Configuration_${config.name}::get_resources() {`);
+    this.emit(
+      `ResourceInstance* Configuration_${config.name}::get_resources() {`,
+    );
     this.emit("    return resources_storage;");
     this.emit("}");
     this.emit("");
 
     // get_resource_count()
-    this.emit(`size_t Configuration_${config.name}::get_resource_count() const {`);
+    this.emit(
+      `size_t Configuration_${config.name}::get_resource_count() const {`,
+    );
     this.emit(`    return ${config.resources.length};`);
     this.emit("}");
     this.emit("");
@@ -662,7 +688,9 @@ export class CodeGenerator {
   private generateConfigurationHeaderDeclaration(
     config: CompilationUnit["configurations"][0],
   ): void {
-    this.emitHeader(`class Configuration_${config.name} : public ConfigurationInstance {`);
+    this.emitHeader(
+      `class Configuration_${config.name} : public ConfigurationInstance {`,
+    );
     this.emitHeader("public:");
 
     // Generate VAR_GLOBAL members
@@ -705,12 +733,16 @@ export class CodeGenerator {
     this.emit("}");
     this.emit("");
 
-    this.emit(`ResourceInstance* Configuration_${config.name}::get_resources() {`);
+    this.emit(
+      `ResourceInstance* Configuration_${config.name}::get_resources() {`,
+    );
     this.emit("    return nullptr;");
     this.emit("}");
     this.emit("");
 
-    this.emit(`size_t Configuration_${config.name}::get_resource_count() const {`);
+    this.emit(
+      `size_t Configuration_${config.name}::get_resource_count() const {`,
+    );
     this.emit("    return 0;");
     this.emit("}");
     this.emit("");
@@ -741,7 +773,11 @@ export class CodeGenerator {
   private collectProgramInstances(
     config: ConfigurationDecl,
   ): Array<{ instanceName: string; programType: string; taskName?: string }> {
-    const instances: Array<{ instanceName: string; programType: string; taskName?: string }> = [];
+    const instances: Array<{
+      instanceName: string;
+      programType: string;
+      taskName?: string;
+    }> = [];
     for (const resource of config.resources) {
       for (const task of resource.tasks) {
         for (const inst of task.programInstances) {

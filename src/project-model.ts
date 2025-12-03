@@ -272,7 +272,9 @@ export class ProjectModelBuilder {
       } else {
         for (const decl of block.declarations) {
           for (const varName of decl.names) {
-            varDeclarations.push(this.convertVarDeclaration(varName, decl, block));
+            varDeclarations.push(
+              this.convertVarDeclaration(varName, decl, block),
+            );
           }
         }
       }
@@ -399,7 +401,10 @@ export class ProjectModelBuilder {
   /**
    * Process a resource declaration.
    */
-  private processResource(resource: ResourceDeclaration, configName: string): ResourceDecl {
+  private processResource(
+    resource: ResourceDeclaration,
+    configName: string,
+  ): ResourceDecl {
     const tasks: TaskDecl[] = [];
 
     // First, collect all tasks
@@ -485,12 +490,17 @@ export class ProjectModelBuilder {
   /**
    * Process a program instance.
    */
-  private processProgramInstance(instance: ProgramInstance, _configName: string): ProgramInstanceDecl {
+  private processProgramInstance(
+    instance: ProgramInstance,
+    _configName: string,
+  ): ProgramInstanceDecl {
     // Use conditional spreading for optional taskName to comply with exactOptionalPropertyTypes
     return {
       instanceName: instance.instanceName,
       programType: instance.programType,
-      ...(instance.taskName !== undefined ? { taskName: instance.taskName } : {}),
+      ...(instance.taskName !== undefined
+        ? { taskName: instance.taskName }
+        : {}),
     };
   }
 
@@ -499,7 +509,10 @@ export class ProjectModelBuilder {
    */
   private validateExternalReferences(): void {
     // Build a map of all global variables across all configurations
-    const globalVarMap = new Map<string, { typeName: string; configName: string }>();
+    const globalVarMap = new Map<
+      string,
+      { typeName: string; configName: string }
+    >();
 
     for (const config of this.configurations) {
       for (const globalVar of config.globalVars) {
@@ -508,7 +521,9 @@ export class ProjectModelBuilder {
           // Global variable defined in multiple configurations - this is allowed
           // but we should check type consistency
           const existing = globalVarMap.get(key)!;
-          if (existing.typeName.toUpperCase() !== globalVar.typeName.toUpperCase()) {
+          if (
+            existing.typeName.toUpperCase() !== globalVar.typeName.toUpperCase()
+          ) {
             this.addWarning(
               `Global variable '${globalVar.name}' has different types in configurations '${existing.configName}' (${existing.typeName}) and '${config.name}' (${globalVar.typeName})`,
               0,
@@ -516,7 +531,10 @@ export class ProjectModelBuilder {
             );
           }
         } else {
-          globalVarMap.set(key, { typeName: globalVar.typeName, configName: config.name });
+          globalVarMap.set(key, {
+            typeName: globalVar.typeName,
+            configName: config.name,
+          });
         }
       }
     }
@@ -533,7 +551,9 @@ export class ProjectModelBuilder {
             0,
             0,
           );
-        } else if (globalVar.typeName.toUpperCase() !== ext.typeName.toUpperCase()) {
+        } else if (
+          globalVar.typeName.toUpperCase() !== ext.typeName.toUpperCase()
+        ) {
           this.addError(
             `Type mismatch for VAR_EXTERNAL '${ext.name}' in program '${prog.name}': expected '${globalVar.typeName}' but found '${ext.typeName}'`,
             0,
@@ -578,7 +598,10 @@ export class ProjectModelBuilder {
         return parseTimeLiteral(lit.value);
       }
       // Handle raw string that might be a time literal
-      if (typeof lit.rawValue === "string" && lit.rawValue.match(/^T#|^TIME#/i)) {
+      if (
+        typeof lit.rawValue === "string" &&
+        lit.rawValue.match(/^T#|^TIME#/i)
+      ) {
         return parseTimeLiteral(lit.rawValue);
       }
     }

@@ -58,7 +58,10 @@ export function compile(
   if (parseResult.errors.length > 0) {
     for (const err of parseResult.errors) {
       // Handle Chevrotain error format
-      const errObj = err as { message?: string; token?: { startLine?: number; startColumn?: number } };
+      const errObj = err as {
+        message?: string;
+        token?: { startLine?: number; startColumn?: number };
+      };
       errors.push({
         message: errObj.message ?? "Parse error",
         line: errObj.token?.startLine ?? 0,
@@ -170,7 +173,10 @@ export function compile(
  * @param source - The ST source code to parse
  * @returns The parsed AST or parse errors
  */
-export function parse(source: string): { ast?: CompilationUnit; errors: CompileError[] } {
+export function parse(source: string): {
+  ast?: CompilationUnit;
+  errors: CompileError[];
+} {
   const errors: CompileError[] = [];
 
   // Parse ST source to CST
@@ -178,7 +184,10 @@ export function parse(source: string): { ast?: CompilationUnit; errors: CompileE
   if (parseResult.errors.length > 0) {
     for (const err of parseResult.errors) {
       // Handle Chevrotain error format
-      const errObj = err as { message?: string; token?: { startLine?: number; startColumn?: number } };
+      const errObj = err as {
+        message?: string;
+        token?: { startLine?: number; startColumn?: number };
+      };
       errors.push({
         message: errObj.message ?? "Parse error",
         line: errObj.token?.startLine ?? 0,
