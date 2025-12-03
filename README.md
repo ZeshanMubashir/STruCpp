@@ -143,6 +143,25 @@ npm ci
 npm run build
 ```
 
+### Building the Standalone Executable
+
+To create a single-file bundled executable that can be distributed without requiring users to install dependencies:
+
+```bash
+# Build the bundled executable
+npm run build:bundle
+```
+
+This creates `dist/strucpp-bundle.cjs`, a single CommonJS file (~5KB) that includes all dependencies. You can run it directly with Node.js:
+
+```bash
+# Run the bundled executable
+node dist/strucpp-bundle.cjs --help
+node dist/strucpp-bundle.cjs --version
+```
+
+The bundled executable requires Node.js 18+ to run, but does not require `npm install` since all dependencies are bundled.
+
 ### Development Commands
 
 ```bash
