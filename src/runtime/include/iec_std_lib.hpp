@@ -581,7 +581,7 @@ inline T MIN(T first, T second, Args... rest) noexcept {
  * k=0 returns first input, k=1 returns second, etc.
  */
 template<typename T>
-inline T MUX_V(IEC_INT k, T in0) noexcept {
+inline T MUX_V([[maybe_unused]] IEC_INT k, T in0) noexcept {
     return in0;
 }
 
