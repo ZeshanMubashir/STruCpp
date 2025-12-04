@@ -202,12 +202,13 @@ export interface TypeDeclaration extends ASTNode {
 }
 
 /**
- * Type definition (struct, enum, array, or alias)
+ * Type definition (struct, enum, array, subrange, or alias)
  */
 export type TypeDefinition =
   | StructDefinition
   | EnumDefinition
   | ArrayDefinition
+  | SubrangeDefinition
   | TypeReference;
 
 /**
@@ -219,12 +220,35 @@ export interface StructDefinition extends ASTNode {
 }
 
 /**
+ * Enumeration member with optional explicit value
+ */
+export interface EnumMember extends ASTNode {
+  kind: "EnumMember";
+  name: string;
+  value?: Expression;
+}
+
+/**
  * Enumeration definition
+ * Supports both simple enums: (RED, YELLOW, GREEN)
+ * and typed enums with explicit values: INT (IDLE := 0, RUNNING := 1)
  */
 export interface EnumDefinition extends ASTNode {
   kind: "EnumDefinition";
-  values: string[];
+  baseType?: TypeReference;
+  members: EnumMember[];
   defaultValue?: string;
+}
+
+/**
+ * Subrange definition
+ * Restricts a base type to a range of values: INT(0..100)
+ */
+export interface SubrangeDefinition extends ASTNode {
+  kind: "SubrangeDefinition";
+  baseType: TypeReference;
+  lowerBound: Expression;
+  upperBound: Expression;
 }
 
 /**

@@ -12,6 +12,13 @@ import type {
   FunctionDeclaration,
   FunctionBlockDeclaration,
   TypeDeclaration,
+  TypeDefinition,
+  StructDefinition,
+  EnumDefinition,
+  EnumMember,
+  ArrayDefinition,
+  ArrayDimension,
+  SubrangeDefinition,
   ConfigurationDeclaration,
   ResourceDeclaration,
   TaskDeclaration,
@@ -173,9 +180,9 @@ export class ASTBuilder {
       functionBlocks.push(this.buildFunctionBlockDeclaration(node));
     }
 
-    // Process type declarations
+    // Process type declarations (TYPE...END_TYPE blocks can contain multiple types)
     for (const node of getAllNodes(children.typeDeclaration)) {
-      types.push(this.buildTypeDeclaration(node));
+      types.push(...this.buildTypeDeclarationBlock(node));
     }
 
     // Process configuration declarations
@@ -295,25 +302,279 @@ export class ASTBuilder {
   }
 
   /**
-   * Build a TypeDeclaration from a CST node.
+   * Build TypeDeclarations from a TYPE...END_TYPE block CST node.
+   * A single TYPE block can contain multiple type declarations.
    */
-  buildTypeDeclaration(node: CstNode): TypeDeclaration {
+  buildTypeDeclarationBlock(node: CstNode): TypeDeclaration[] {
+    const children = node.children as CstChildren;
+    const types: TypeDeclaration[] = [];
+
+    for (const singleTypeNode of getAllNodes(children.singleTypeDeclaration)) {
+      types.push(this.buildSingleTypeDeclaration(singleTypeNode));
+    }
+
+    return types;
+  }
+
+  /**
+   * Build a single TypeDeclaration from a singleTypeDeclaration CST node.
+   */
+  buildSingleTypeDeclaration(node: CstNode): TypeDeclaration {
     const children = node.children as CstChildren;
     const nameToken = getAllTokens(children.Identifier)[0];
     const name = nameToken?.image ?? "";
 
-    // For Phase 2.1, we just create a simple type reference
-    // Full type definition parsing will be in Phase 2.2
+    const definition = this.buildTypeDefinition(node);
+
     return {
       kind: "TypeDeclaration",
       sourceSpan: nodeToSourceSpan(node),
       name,
-      definition: {
-        kind: "TypeReference",
+      definition,
+    };
+  }
+
+  /**
+   * Build a TypeDefinition from a singleTypeDeclaration CST node.
+   * Handles struct, enum (simple or typed), array, subrange, and alias types.
+   */
+  buildTypeDefinition(node: CstNode): TypeDefinition {
+    const children = node.children as CstChildren;
+
+    // Check for struct type
+    const structNode = getFirstNode(children.structType);
+    if (structNode) {
+      return this.buildStructDefinition(structNode);
+    }
+
+    // Check for simple enum type: (RED, YELLOW, GREEN)
+    const simpleEnumNode = getFirstNode(children.simpleEnumType);
+    if (simpleEnumNode) {
+      return this.buildSimpleEnumDefinition(simpleEnumNode);
+    }
+
+    // Check for array type
+    const arrayNode = getFirstNode(children.arrayType);
+    if (arrayNode) {
+      return this.buildArrayDefinition(arrayNode);
+    }
+
+    // Check for typed enum, subrange, or alias
+    const typedEnumOrSubrangeNode = getFirstNode(
+      children.typedEnumOrSubrangeOrAlias,
+    );
+    if (typedEnumOrSubrangeNode) {
+      return this.buildTypedEnumOrSubrangeOrAlias(typedEnumOrSubrangeNode);
+    }
+
+    // Fallback to a simple type reference
+    return {
+      kind: "TypeReference",
+      sourceSpan: nodeToSourceSpan(node),
+      name: "INT",
+      isReference: false,
+    };
+  }
+
+  /**
+   * Build a StructDefinition from a structType CST node.
+   */
+  buildStructDefinition(node: CstNode): StructDefinition {
+    const children = node.children as CstChildren;
+    const fields: VarDeclaration[] = [];
+
+    for (const varDeclNode of getAllNodes(children.varDeclaration)) {
+      fields.push(this.buildVarDeclaration(varDeclNode));
+    }
+
+    return {
+      kind: "StructDefinition",
+      sourceSpan: nodeToSourceSpan(node),
+      fields,
+    };
+  }
+
+  /**
+   * Build an EnumDefinition from a simpleEnumType CST node.
+   * Handles: (RED, YELLOW, GREEN) or (A := 0, B := 1)
+   */
+  buildSimpleEnumDefinition(node: CstNode): EnumDefinition {
+    const children = node.children as CstChildren;
+    const members: EnumMember[] = [];
+
+    for (const memberNode of getAllNodes(children.enumMember)) {
+      members.push(this.buildEnumMember(memberNode));
+    }
+
+    // Check for default value: := DefaultValue
+    let defaultValue: string | undefined;
+    const identifiers = getAllTokens(children.Identifier);
+    if (identifiers.length > 0) {
+      defaultValue = identifiers[0]?.image;
+    }
+
+    return {
+      kind: "EnumDefinition",
+      sourceSpan: nodeToSourceSpan(node),
+      members,
+      ...(defaultValue !== undefined ? { defaultValue } : {}),
+    };
+  }
+
+  /**
+   * Build an EnumMember from an enumMember CST node.
+   */
+  buildEnumMember(node: CstNode): EnumMember {
+    const children = node.children as CstChildren;
+    const nameToken = getAllTokens(children.Identifier)[0];
+    const name = nameToken?.image ?? "";
+
+    // Check for explicit value: := expression
+    let value: Expression | undefined;
+    const exprNode = getFirstNode(children.expression);
+    if (exprNode) {
+      const expr = this.buildExpression(exprNode);
+      if (expr) {
+        value = expr;
+      }
+    }
+
+    return {
+      kind: "EnumMember",
+      sourceSpan: nodeToSourceSpan(node),
+      name,
+      ...(value !== undefined ? { value } : {}),
+    };
+  }
+
+  /**
+   * Build an ArrayDefinition from an arrayType CST node.
+   */
+  buildArrayDefinition(node: CstNode): ArrayDefinition {
+    const children = node.children as CstChildren;
+    const dimensions: ArrayDimension[] = [];
+
+    for (const dimNode of getAllNodes(children.arrayDimension)) {
+      dimensions.push(this.buildArrayDimension(dimNode));
+    }
+
+    // Get element type from dataType
+    const dataTypeNode = getFirstNode(children.dataType);
+    const elementType: TypeReference = dataTypeNode
+      ? this.buildTypeReference(dataTypeNode)
+      : {
+          kind: "TypeReference",
+          sourceSpan: nodeToSourceSpan(node),
+          name: "INT",
+          isReference: false,
+        };
+
+    return {
+      kind: "ArrayDefinition",
+      sourceSpan: nodeToSourceSpan(node),
+      dimensions,
+      elementType,
+    };
+  }
+
+  /**
+   * Build an ArrayDimension from an arrayDimension CST node.
+   */
+  buildArrayDimension(node: CstNode): ArrayDimension {
+    const children = node.children as CstChildren;
+    const expressions = getAllNodes(children.expression);
+
+    const startExpr = expressions[0]
+      ? this.buildExpression(expressions[0])
+      : undefined;
+    const endExpr = expressions[1]
+      ? this.buildExpression(expressions[1])
+      : undefined;
+
+    const start = startExpr ?? this.createDummyLiteral(node);
+    const end = endExpr ?? this.createDummyLiteral(node);
+
+    return {
+      kind: "ArrayDimension",
+      sourceSpan: nodeToSourceSpan(node),
+      start,
+      end,
+    };
+  }
+
+  /**
+   * Build a TypeDefinition from a typedEnumOrSubrangeOrAlias CST node.
+   * Handles:
+   * - Typed enum: INT (IDLE := 0, RUNNING := 1)
+   * - Subrange: INT(0..100)
+   * - Alias: INT
+   */
+  buildTypedEnumOrSubrangeOrAlias(node: CstNode): TypeDefinition {
+    const children = node.children as CstChildren;
+
+    // Get the base type
+    const dataTypeNode = getFirstNode(children.dataType);
+    const baseType: TypeReference = dataTypeNode
+      ? this.buildTypeReference(dataTypeNode)
+      : {
+          kind: "TypeReference",
+          sourceSpan: nodeToSourceSpan(node),
+          name: "INT",
+          isReference: false,
+        };
+
+    // Check for subrange bounds
+    const subrangeBoundsNode = getFirstNode(children.subrangeBounds);
+    if (subrangeBoundsNode) {
+      return this.buildSubrangeDefinition(subrangeBoundsNode, baseType);
+    }
+
+    // Check for typed enum members
+    const enumMemberNodes = getAllNodes(children.enumMember);
+    if (enumMemberNodes.length > 0) {
+      const members: EnumMember[] = [];
+      for (const memberNode of enumMemberNodes) {
+        members.push(this.buildEnumMember(memberNode));
+      }
+
+      return {
+        kind: "EnumDefinition",
         sourceSpan: nodeToSourceSpan(node),
-        name: "INT", // Placeholder
-        isReference: false,
-      },
+        baseType,
+        members,
+      };
+    }
+
+    // Simple alias - just return the type reference
+    return baseType;
+  }
+
+  /**
+   * Build a SubrangeDefinition from a subrangeBounds CST node.
+   */
+  buildSubrangeDefinition(
+    node: CstNode,
+    baseType: TypeReference,
+  ): SubrangeDefinition {
+    const children = node.children as CstChildren;
+    const expressions = getAllNodes(children.expression);
+
+    const lowerExpr = expressions[0]
+      ? this.buildExpression(expressions[0])
+      : undefined;
+    const upperExpr = expressions[1]
+      ? this.buildExpression(expressions[1])
+      : undefined;
+
+    const lowerBound = lowerExpr ?? this.createDummyLiteral(node);
+    const upperBound = upperExpr ?? this.createDummyLiteral(node);
+
+    return {
+      kind: "SubrangeDefinition",
+      sourceSpan: nodeToSourceSpan(node),
+      baseType,
+      lowerBound,
+      upperBound,
     };
   }
 

@@ -127,4 +127,142 @@ describe('STParser', () => {
       expect(result.errors.length).toBeGreaterThan(0);
     });
   });
+
+  describe('type declarations', () => {
+    it('should parse a simple type alias', () => {
+      const source = `
+        TYPE
+          MyInt : INT;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse a simple enum type', () => {
+      const source = `
+        TYPE
+          TrafficLight : (RED, YELLOW, GREEN);
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse an enum with default value', () => {
+      const source = `
+        TYPE
+          TrafficLight : (RED, YELLOW, GREEN) := RED;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse an enum with explicit values', () => {
+      const source = `
+        TYPE
+          State : (IDLE := 0, RUNNING := 1, STOPPED := 2);
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse a typed enum', () => {
+      const source = `
+        TYPE
+          State : INT (IDLE := 0, RUNNING := 1, STOPPED := 2);
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse a struct type', () => {
+      const source = `
+        TYPE
+          Point : STRUCT
+            x : INT;
+            y : INT;
+          END_STRUCT;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse a struct with multiple field types', () => {
+      const source = `
+        TYPE
+          Person : STRUCT
+            name : STRING;
+            age : INT;
+            height : REAL;
+            active : BOOL;
+          END_STRUCT;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse an array type', () => {
+      const source = `
+        TYPE
+          IntArray : ARRAY[0..9] OF INT;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse a multi-dimensional array type', () => {
+      const source = `
+        TYPE
+          Matrix : ARRAY[0..2, 0..2] OF REAL;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse a subrange type', () => {
+      const source = `
+        TYPE
+          Percentage : INT(0..100);
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse multiple type declarations', () => {
+      const source = `
+        TYPE
+          MyInt : INT;
+          MyReal : REAL;
+          Color : (RED, GREEN, BLUE);
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse nested struct types', () => {
+      const source = `
+        TYPE
+          Inner : STRUCT
+            value : INT;
+          END_STRUCT;
+          Outer : STRUCT
+            inner : Inner;
+            count : INT;
+          END_STRUCT;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+  });
 });

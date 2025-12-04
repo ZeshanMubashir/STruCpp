@@ -13,6 +13,8 @@ import type {
   ConfigurationDecl,
   ProgramDecl,
 } from "../project-model.js";
+import { TypeRegistry } from "../semantic/type-registry.js";
+import { TypeCodeGenerator } from "./type-codegen.js";
 
 // =============================================================================
 // Code Generation Options
@@ -138,9 +140,25 @@ export class CodeGenerator {
     this.emitHeader("");
     this.emitHeader('#include "iec_types.hpp"');
     this.emitHeader('#include "iec_std_lib.hpp"');
+    this.emitHeader("#include <array>");
+    this.emitHeader("#include <string>");
     this.emitHeader("");
     this.emitHeader("namespace strucpp {");
     this.emitHeader("");
+
+    // Generate user-defined types (Phase 2.2)
+    if (ast.types.length > 0) {
+      const typeRegistry = new TypeRegistry();
+      typeRegistry.registerTypes(ast.types);
+      const typeCodeGen = new TypeCodeGenerator({
+        indent: this.options.indent,
+        lineEnding: this.options.lineEnding,
+      });
+      const typeCode = typeCodeGen.generateFromRegistry(typeRegistry);
+      for (const line of typeCode.split(this.options.lineEnding)) {
+        this.emitHeader(line);
+      }
+    }
 
     // Generate forward declarations
     for (const fb of ast.functionBlocks) {
