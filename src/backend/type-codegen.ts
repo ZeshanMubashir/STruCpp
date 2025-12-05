@@ -122,20 +122,66 @@ export class TypeCodeGenerator {
     switch (def.kind) {
       case "StructDefinition":
         this.generateStructType(type.name, def);
+        // Generate IEC_ wrapper for struct variables
+        this.emit(`using IEC_${type.name} = IECVar<${type.name}>;`);
+        this.emit("");
         break;
       case "EnumDefinition":
         this.generateEnumType(type.name, def);
+        // Generate IEC_ wrapper for enum variables using IEC_ENUM
+        this.emit(`using IEC_${type.name} = IEC_ENUM<${type.name}>;`);
+        this.emit("");
         break;
       case "ArrayDefinition":
         this.generateArrayType(type.name, def);
+        // Generate IEC_ wrapper for array variables
+        this.emit(`using IEC_${type.name} = IECVar<${type.name}>;`);
+        this.emit("");
         break;
       case "SubrangeDefinition":
         this.generateSubrangeType(type.name, def);
+        // Generate IEC_ wrapper aliasing to base type's wrapper
+        this.generateIecWrapperForSubrange(type.name, def);
         break;
       case "TypeReference":
         this.generateTypeAlias(type.name, def);
+        // Generate IEC_ wrapper aliasing to base type's wrapper
+        this.generateIecWrapperForAlias(type.name, def);
         break;
     }
+  }
+
+  /**
+   * Generate IEC_ wrapper for a type alias
+   */
+  private generateIecWrapperForAlias(name: string, def: TypeReference): void {
+    const baseName = def.name.toUpperCase();
+    if (isElementaryType(baseName)) {
+      // Alias to elementary type - use the existing IEC_ wrapper
+      this.emit(`using IEC_${name} = IEC_${baseName};`);
+    } else {
+      // Alias to user-defined type - use IECVar wrapper
+      this.emit(`using IEC_${name} = IECVar<${name}>;`);
+    }
+    this.emit("");
+  }
+
+  /**
+   * Generate IEC_ wrapper for a subrange type
+   */
+  private generateIecWrapperForSubrange(
+    name: string,
+    def: SubrangeDefinition,
+  ): void {
+    const baseName = def.baseType.name.toUpperCase();
+    if (isElementaryType(baseName)) {
+      // Subrange of elementary type - use the existing IEC_ wrapper
+      this.emit(`using IEC_${name} = IEC_${baseName};`);
+    } else {
+      // Subrange of user-defined type - use IECVar wrapper
+      this.emit(`using IEC_${name} = IECVar<${name}>;`);
+    }
+    this.emit("");
   }
 
   /**
