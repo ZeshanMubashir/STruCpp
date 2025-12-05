@@ -164,15 +164,16 @@ export class STParser extends CstParser {
 
   /**
    * Single type definition
+   * Supports: struct, enum (simple or typed), array, subrange, or alias
    */
   public singleTypeDeclaration = this.RULE("singleTypeDeclaration", () => {
     this.CONSUME(tokens.Identifier);
     this.CONSUME(tokens.Colon);
     this.OR([
       { ALT: () => this.SUBRULE(this.structType) },
-      { ALT: () => this.SUBRULE(this.enumType) },
+      { ALT: () => this.SUBRULE(this.simpleEnumType) },
       { ALT: () => this.SUBRULE(this.arrayType) },
-      { ALT: () => this.SUBRULE(this.dataType) },
+      { ALT: () => this.SUBRULE(this.typedEnumOrSubrangeOrAlias) },
     ]);
     this.CONSUME(tokens.Semicolon);
   });
@@ -189,20 +190,97 @@ export class STParser extends CstParser {
   });
 
   /**
-   * Enumeration type definition
+   * Simple enumeration type definition: (RED, YELLOW, GREEN)
+   * Optionally with default value: (RED, YELLOW, GREEN) := RED
    */
-  public enumType = this.RULE("enumType", () => {
+  public simpleEnumType = this.RULE("simpleEnumType", () => {
     this.CONSUME(tokens.LParen);
     this.AT_LEAST_ONE_SEP({
       SEP: tokens.Comma,
-      DEF: () => this.CONSUME(tokens.Identifier),
+      DEF: () => this.SUBRULE(this.enumMember),
     });
     this.CONSUME(tokens.RParen);
     this.OPTION(() => {
       this.CONSUME(tokens.Assign);
-      this.CONSUME2(tokens.Identifier);
+      this.CONSUME(tokens.Identifier);
     });
   });
+
+  /**
+   * Enumeration member: NAME or NAME := value
+   */
+  public enumMember = this.RULE("enumMember", () => {
+    this.CONSUME(tokens.Identifier);
+    this.OPTION(() => {
+      this.CONSUME(tokens.Assign);
+      this.SUBRULE(this.expression);
+    });
+  });
+
+  /**
+   * Typed enumeration, subrange, or simple alias
+   * - Typed enum: INT (IDLE := 0, RUNNING := 1)
+   * - Subrange: INT(0..100)
+   * - Alias: INT
+   */
+  public typedEnumOrSubrangeOrAlias = this.RULE(
+    "typedEnumOrSubrangeOrAlias",
+    () => {
+      this.SUBRULE(this.dataType);
+      this.OPTION(() => {
+        this.CONSUME(tokens.LParen);
+        this.OR([
+          {
+            ALT: () => {
+              // Subrange: expression..expression
+              this.SUBRULE(this.subrangeBounds);
+            },
+            GATE: () => this.isSubrangeAhead(),
+          },
+          {
+            ALT: () => {
+              // Typed enum: member, member, ...
+              this.AT_LEAST_ONE_SEP({
+                SEP: tokens.Comma,
+                DEF: () => this.SUBRULE(this.enumMember),
+              });
+            },
+          },
+        ]);
+        this.CONSUME(tokens.RParen);
+      });
+    },
+  );
+
+  /**
+   * Subrange bounds: expression..expression
+   */
+  public subrangeBounds = this.RULE("subrangeBounds", () => {
+    this.SUBRULE(this.expression);
+    this.CONSUME(tokens.DoubleDot);
+    this.SUBRULE2(this.expression);
+  });
+
+  /**
+   * Lookahead helper to detect if we're parsing a subrange (has ..)
+   */
+  private isSubrangeAhead(): boolean {
+    // Look ahead to see if there's a DoubleDot token before RParen or Comma
+    const MAX_LOOKAHEAD = 100;
+    for (let i = 1; i <= MAX_LOOKAHEAD; i++) {
+      const token = this.LA(i);
+      if (token === undefined || token.tokenType === tokens.RParen) {
+        return false;
+      }
+      if (token.tokenType === tokens.DoubleDot) {
+        return true;
+      }
+      if (token.tokenType === tokens.Comma) {
+        return false;
+      }
+    }
+    return false;
+  }
 
   /**
    * Array type definition

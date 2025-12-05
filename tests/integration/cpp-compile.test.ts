@@ -244,6 +244,231 @@ int main() {
     const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'time_intervals');
     expect(cppResult.success).toBe(true);
   });
+
+  // User-Defined Data Types (Phase 2.2) Compilation Tests
+
+  it('should compile a simple struct type', () => {
+    const source = `
+      TYPE
+        Point : STRUCT
+          x : INT;
+          y : INT;
+        END_STRUCT;
+      END_TYPE
+
+      PROGRAM UseStruct
+        VAR p : Point; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'simple_struct');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile a struct with multiple field types', () => {
+    const source = `
+      TYPE
+        SensorData : STRUCT
+          id : INT;
+          value : REAL;
+          active : BOOL;
+          timestamp : DINT;
+        END_STRUCT;
+      END_TYPE
+
+      PROGRAM UseSensorData
+        VAR sensor : SensorData; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'struct_multi_fields');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile a simple enum type', () => {
+    const source = `
+      TYPE
+        TrafficLight : (RED, YELLOW, GREEN);
+      END_TYPE
+
+      PROGRAM UseEnum
+        VAR light : TrafficLight; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'simple_enum');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile a typed enum with explicit values', () => {
+    const source = `
+      TYPE
+        MachineState : INT (IDLE := 0, RUNNING := 1, PAUSED := 2, STOPPED := 3);
+      END_TYPE
+
+      PROGRAM UseTypedEnum
+        VAR state : MachineState; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'typed_enum');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile an array type', () => {
+    const source = `
+      TYPE
+        IntArray : ARRAY[0..9] OF INT;
+      END_TYPE
+
+      PROGRAM UseArray
+        VAR arr : IntArray; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'array_type');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile a multi-dimensional array type', () => {
+    const source = `
+      TYPE
+        Matrix : ARRAY[0..2, 0..2] OF REAL;
+      END_TYPE
+
+      PROGRAM UseMatrix
+        VAR m : Matrix; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'multi_dim_array');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile a subrange type', () => {
+    const source = `
+      TYPE
+        Percentage : INT(0..100);
+      END_TYPE
+
+      PROGRAM UseSubrange
+        VAR pct : Percentage; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'subrange_type');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile a type alias to elementary type', () => {
+    const source = `
+      TYPE
+        MyInt : INT;
+        MyReal : REAL;
+      END_TYPE
+
+      PROGRAM UseTypeAlias
+        VAR
+          a : MyInt;
+          b : MyReal;
+        END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'type_alias');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile multiple user-defined types together', () => {
+    const source = `
+      TYPE
+        MyInt : INT;
+        TrafficLight : (RED, YELLOW, GREEN);
+        MachineState : INT (IDLE := 0, RUNNING := 1, STOPPED := 2);
+        Point : STRUCT
+          x : INT;
+          y : INT;
+        END_STRUCT;
+        IntArray : ARRAY[0..9] OF INT;
+        Percentage : INT(0..100);
+      END_TYPE
+
+      PROGRAM UseAllTypes
+        VAR
+          a : MyInt;
+          light : TrafficLight;
+          state : MachineState;
+          p : Point;
+          arr : IntArray;
+          pct : Percentage;
+        END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'all_user_types');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile user-defined types with elementary type variables', () => {
+    const source = `
+      TYPE
+        Point : STRUCT
+          x : INT;
+          y : INT;
+        END_STRUCT;
+      END_TYPE
+
+      PROGRAM MixedTypes
+        VAR
+          p : Point;
+          counter : INT;
+          enabled : BOOL;
+          value : REAL;
+        END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'mixed_types');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile TYPE block without program usage', () => {
+    const source = `
+      TYPE
+        Color : (RED, GREEN, BLUE);
+        Coordinate : STRUCT
+          x : REAL;
+          y : REAL;
+          z : REAL;
+        END_STRUCT;
+      END_TYPE
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'types_only');
+    expect(cppResult.success).toBe(true);
+  });
 });
 
 /**

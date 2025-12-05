@@ -13,6 +13,8 @@ import type {
   ConfigurationDecl,
   ProgramDecl,
 } from "../project-model.js";
+import { TypeRegistry } from "../semantic/type-registry.js";
+import { TypeCodeGenerator } from "./type-codegen.js";
 
 // =============================================================================
 // Code Generation Options
@@ -138,9 +140,26 @@ export class CodeGenerator {
     this.emitHeader("");
     this.emitHeader('#include "iec_types.hpp"');
     this.emitHeader('#include "iec_std_lib.hpp"');
+    this.emitHeader('#include "iec_enum.hpp"');
+    this.emitHeader("#include <array>");
+    this.emitHeader("#include <string>");
     this.emitHeader("");
     this.emitHeader("namespace strucpp {");
     this.emitHeader("");
+
+    // Generate user-defined types (Phase 2.2)
+    if (ast.types.length > 0) {
+      const typeRegistry = new TypeRegistry();
+      typeRegistry.registerTypes(ast.types);
+      const typeCodeGen = new TypeCodeGenerator({
+        indent: this.options.indent,
+        lineEnding: this.options.lineEnding,
+      });
+      const typeCode = typeCodeGen.generateFromRegistry(typeRegistry);
+      for (const line of typeCode.split(this.options.lineEnding)) {
+        this.emitHeader(line);
+      }
+    }
 
     // Generate forward declarations
     for (const fb of ast.functionBlocks) {
@@ -477,7 +496,10 @@ export class CodeGenerator {
       const inits: string[] = [];
       for (const decl of prog.varDeclarations) {
         const initVal = this.getDefaultValue(decl.typeName, decl.initialValue);
-        inits.push(`${decl.name}(${initVal})`);
+        // Skip user-defined types (empty initVal) - they use default constructors
+        if (initVal) {
+          inits.push(`${decl.name}(${initVal})`);
+        }
       }
       for (const ext of prog.varExternal) {
         inits.push(`${ext.name}(${ext.name}_ref)`);
@@ -493,7 +515,10 @@ export class CodeGenerator {
       const inits: string[] = [];
       for (const decl of prog.varDeclarations) {
         const initVal = this.getDefaultValue(decl.typeName, decl.initialValue);
-        inits.push(`${decl.name}(${initVal})`);
+        // Skip user-defined types (empty initVal) - they use default constructors
+        if (initVal) {
+          inits.push(`${decl.name}(${initVal})`);
+        }
       }
       if (inits.length > 0) {
         this.emit(`    : ${inits.join(", ")}`);
@@ -596,7 +621,10 @@ export class CodeGenerator {
     // Initialize global variables
     for (const gvar of config.globalVars) {
       const initVal = this.getDefaultValue(gvar.typeName, gvar.initialValue);
-      inits.push(`${gvar.name}(${initVal})`);
+      // Skip user-defined types (empty initVal) - they use default constructors
+      if (initVal) {
+        inits.push(`${gvar.name}(${initVal})`);
+      }
     }
 
     // Initialize program instances (with external variable references)
@@ -767,7 +795,39 @@ export class CodeGenerator {
     if (upperType === "BOOL") return "false";
     if (upperType === "REAL" || upperType === "LREAL") return "0.0";
     if (upperType === "STRING" || upperType === "WSTRING") return '""';
-    return "0";
+
+    // Check if it's an elementary type that uses numeric default
+    const numericTypes = [
+      "SINT",
+      "INT",
+      "DINT",
+      "LINT",
+      "USINT",
+      "UINT",
+      "UDINT",
+      "ULINT",
+      "BYTE",
+      "WORD",
+      "DWORD",
+      "LWORD",
+      "TIME",
+      "DATE",
+      "TOD",
+      "DT",
+      "LTIME",
+      "LDATE",
+      "LTOD",
+      "LDT",
+      "CHAR",
+      "WCHAR",
+    ];
+    if (numericTypes.includes(upperType)) {
+      return "0";
+    }
+
+    // User-defined types (structs, enums, arrays, subranges, type aliases)
+    // use default initialization - return empty string to skip in initializer list
+    return "";
   }
 
   /**
