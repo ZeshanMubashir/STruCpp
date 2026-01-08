@@ -28,15 +28,20 @@ Design and implement the foundational C++ runtime architecture. This phase is di
 - [Phase 1.5: Composite Types](phase-1.5-composite-types.md) - Arrays, Structures, Enumerations ✓
 - [Phase 1.6: Standard Functions and Library](phase-1.6-standard-functions.md) - Numeric, conversion, and variadic functions ✓
 
-### Phase 2: Project Structure and User-Defined Types
-**Status**: PARTIALLY COMPLETE | **Duration**: 7-10 weeks
+### Phase 2: Project Structure, Types, and Language Features
+**Status**: PARTIALLY COMPLETE | **Duration**: 10-14 weeks
 
-Parse IEC 61131-3 project structure and user-defined data types, generating C++ class hierarchy for runtime scheduling and type definitions.
+Parse IEC 61131-3 project structure, user-defined data types, and advanced language features, generating C++ class hierarchy for runtime scheduling, type definitions, and language constructs.
 
 **Sub-phases**:
 - [Phase 2.1: Project Structure and Scheduling Model](phase-2.1-project-structure.md) - Parse CONFIGURATION, RESOURCE, TASK, program instances ✓
 - [Phase 2.2: User-Defined Data Types](phase-2.2-user-data-types.md) - Parse TYPE declarations (enumerations, structures, arrays, subranges) ✓
 - [Phase 2.3: Located Variables Architecture](phase-2.3-located-variables.md) - Located variables (AT %IX0.0, %QX0.0) with runtime binding and forcing support
+- [Phase 2.4: References and Pointers](phase-2.4-references.md) - REF_TO, REF, DREF, ^, NULL
+- [Phase 2.5: Nested Comments](phase-2.5-nested-comments.md) - Support for nested comment blocks
+- [Phase 2.6: Variable Modifiers](phase-2.6-variable-modifiers.md) - RETAIN and CONSTANT code generation
+- [Phase 2.7: Namespaces](phase-2.7-namespaces.md) - NAMESPACE/END_NAMESPACE support
+- [Phase 2.8: OOP Extensions](phase-2.8-oop-extensions.md) - Methods, interfaces, inheritance
 
 ### Phase 3: Core ST Translation
 **Status**: IN PROGRESS | **Duration**: 4-6 weeks
@@ -66,10 +71,10 @@ Full integration with OpenPLC runtime (located variables architecture already co
 
 **Document**: [phase-6-openplc-integration.md](phase-6-openplc-integration.md)
 
-### Phase 7: IEC v3 Features and Full Coverage
+### Phase 7: Additional Languages and Full Coverage
 **Status**: PENDING | **Duration**: 6-8 weeks
 
-Implement IEC 61131-3 Edition 3 features and complete language coverage.
+Implement optional IEC 61131-3 languages (IL, SFC) and complete full standard coverage.
 
 **Document**: [phase-7-iec-v3-features.md](phase-7-iec-v3-features.md)
 

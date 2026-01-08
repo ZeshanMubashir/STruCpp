@@ -1,179 +1,145 @@
-# Phase 7: IEC v3 Features and Full Coverage
+# Phase 7: Additional Languages and Full Coverage
 
 **Status**: PENDING
 
 **Duration**: 6-8 weeks
 
-**Goal**: Implement IEC 61131-3 Edition 3 features and complete language coverage
+**Goal**: Implement optional IEC 61131-3 languages (IL, SFC) and complete full standard coverage
 
 ## Overview
 
-This phase implements the remaining IEC 61131-3 features, including Edition 3 additions like references, and completes full language coverage with user-defined types, arrays, control structures, and additional data types.
+This phase implements optional IEC 61131-3 languages beyond Structured Text, including Instruction List (IL) and Sequential Function Chart (SFC). It also addresses any remaining IEC 61131-3 features not covered in earlier phases.
+
+**Note**: Many IEC v3 features have been moved to Phase 2:
+- References (REF_TO, etc.) → Phase 2.4
+- Nested comments → Phase 2.5
+- Namespaces → Phase 2.7
+- OOP extensions → Phase 2.8
 
 ## Scope
 
-### IEC v3 Features
-- References (REF_TO, REF, DREF, ^, NULL)
-- Nested comments (* (* nested *) *)
-- Additional data types (LWORD, etc.)
-- Enhanced type system features
+### Instruction List (IL) Support (Optional)
+- IL parsing and AST
+- IL to C++ code generation
+- IL standard instructions
 
-### Additional Language Features
-- User-defined structures (STRUCT...END_STRUCT)
-- User-defined enumerations (TYPE...END_TYPE)
-- Arrays (single and multi-dimensional)
-- Subranges
-- Strings (STRING, WSTRING)
-- Time types (TIME, DATE, TIME_OF_DAY, DATE_AND_TIME)
-- Control structures (IF, CASE, FOR, WHILE, REPEAT, EXIT)
-- Instruction List (IL) support (optional)
-- Sequential Function Chart (SFC) support (optional)
+### Sequential Function Chart (SFC) Support (Optional)
+- SFC parsing (steps, transitions, actions)
+- SFC state machine code generation
+- Action qualifiers (N, R, S, P, etc.)
 
-### Example ST Code with v3 Features
+### Remaining Language Features
+- Any IEC 61131-3 features not covered in Phases 1-6
 
-```st
-TYPE
-    Status : (IDLE, RUNNING, STOPPED, ERROR);
-    
-    Config : STRUCT
-        mode : Status;
-        setpoint : REAL;
-        limits : ARRAY[1..2] OF REAL;
-    END_STRUCT;
-END_TYPE
+### Example IL Code
 
-FUNCTION ProcessData
-    VAR_INPUT
-        data_ref : REF_TO ARRAY[1..100] OF INT;
-    END_VAR
-    VAR
-        i : INT;
-        sum : INT := 0;
-    END_VAR
-    
-    IF data_ref <> NULL THEN
-        FOR i := 1 TO 100 DO
-            sum := sum + data_ref^[i];
-        END_FOR;
-    END_IF;
-    
-    ProcessData := sum;
-END_FUNCTION
+```il
+(* Instruction List example *)
+LD    input1
+AND   input2
+ST    output1
+```
+
+### Example SFC Structure
+
+```
++-------+
+| Start |  (Initial Step)
++-------+
+    |
+    v [StartCondition]
++-------+
+| Step1 |  (Action: N DoSomething)
++-------+
+    |
+    v [Step1Done]
++-------+
+| Step2 |  (Action: N DoMore)
++-------+
+    |
+    v [Finished]
++-------+
+| End   |
++-------+
 ```
 
 ## Deliverables
 
-### Frontend
-- Grammar extensions for all remaining features
-- AST nodes for complex types and structures
-- Reference syntax support
+### IL Support (if implemented)
+- IL lexer and parser
+- IL AST nodes
+- IL to C++ code generation
+- IL standard operators (LD, ST, AND, OR, ADD, etc.)
 
-### Semantic Analysis
-- Structure type checking
-- Array bounds checking
-- Reference validation
-- Enumeration value checking
-- Subrange validation
-
-### IR and Backend
-- C++ struct generation for ST structs
-- C++ enum generation for ST enums
-- Array access code generation
-- Reference/pointer handling
-- String operations
-
-### Standard Library Extensions
-- String functions (LEN, LEFT, RIGHT, MID, CONCAT, INSERT, DELETE, REPLACE, FIND)
-- Type conversion functions
-- Time/date functions
-- Bit string functions
+### SFC Support (if implemented)
+- SFC structure parser
+- Step and transition representation
+- Action qualifier handling
+- SFC state machine code generation
 
 ### Testing
-- Comprehensive test suite for all features
+- IL compliance tests
+- SFC compliance tests
 - Edge case tests
-- Compliance tests against IEC 61131-3 v3 specification
 
 ## Success Criteria
 
-- All IEC 61131-3 v3 features implemented
-- Full language coverage (ST, IL if included, SFC if included)
-- All standard library functions available
-- Compliance with IEC 61131-3 v3 specification
+- IL support (if included) passes compliance tests
+- SFC support (if included) passes compliance tests
+- Full IEC 61131-3 standard coverage achieved
 - Comprehensive test coverage (>95%)
-- All tests pass
 
 ## Validation Examples
 
-### Test 1: References
-```st
-FUNCTION ModifyValue
-    VAR_IN_OUT value_ref : REF_TO INT; END_VAR
-    IF value_ref <> NULL THEN
-        value_ref^ := value_ref^ + 1;
-    END_IF
-END_FUNCTION
+### Test 1: IL Program
+```il
+PROGRAM ILExample
+VAR
+    a, b, result : INT;
+END_VAR
 
-PROGRAM Main
-    VAR x : INT := 10; END_VAR
-    ModifyValue(REF(x));
-    (* x should now be 11 *)
+    LD    a
+    ADD   b
+    ST    result
 END_PROGRAM
 ```
 
-### Test 2: Structures and Arrays
+### Test 2: SFC with Actions
 ```st
-TYPE
-    Point : STRUCT
-        x : REAL;
-        y : REAL;
-    END_STRUCT;
-END_TYPE
+(* SFC represented in ST-like syntax *)
+PROGRAM SFCExample
+    INITIAL_STEP Start:
+    END_STEP
 
-PROGRAM Main
-    VAR
-        points : ARRAY[1..10] OF Point;
-        i : INT;
-    END_VAR
-    
-    FOR i := 1 TO 10 DO
-        points[i].x := REAL(i);
-        points[i].y := REAL(i * 2);
-    END_FOR;
-END_PROGRAM
-```
+    TRANSITION FROM Start TO Running
+        := StartButton;
+    END_TRANSITION
 
-### Test 3: Control Structures
-```st
-PROGRAM ControlFlow
-    VAR
-        value : INT;
-        result : STRING;
-    END_VAR
-    
-    CASE value OF
-        1..10:
-            result := 'Low';
-        11..50:
-            result := 'Medium';
-        51..100:
-            result := 'High';
-    ELSE
-        result := 'Out of range';
-    END_CASE;
+    STEP Running:
+        Motor(N);
+    END_STEP
+
+    TRANSITION FROM Running TO Start
+        := StopButton;
+    END_TRANSITION
 END_PROGRAM
 ```
 
 ## Notes
 
-### IEC 61131-3 v3 Additions
+### IL (Instruction List)
 
-Key additions in Edition 3:
-- **References**: REF_TO, REF(), ^, NULL for pointer-like semantics
-- **Nested Comments**: (* (* inner *) outer *)
-- **LWORD**: 64-bit bit string type
-- **LTIME, LDATE, LTOD, LDT**: Extended precision time types
-- **Object-Oriented Extensions**: Methods, interfaces (optional)
+IL is a low-level language similar to assembly. It's deprecated in IEC 61131-3 Edition 3 but still widely used in legacy systems. Implementation is optional.
+
+### SFC (Sequential Function Chart)
+
+SFC is a graphical language for defining sequential processes. It requires:
+- Steps with associated actions
+- Transitions with conditions
+- Action qualifiers (N=Non-stored, R=Reset, S=Set, etc.)
 
 ### Relationship to Other Phases
 - **Phase 1**: Type system foundation
-- **Phase 5**: Function blocks as base for OO extensions
+- **Phase 2**: Structural elements (POUs, types, namespaces, OOP)
+- **Phase 3**: ST expression/statement compilation
+- **Phase 5**: Function blocks (used by SFC actions)

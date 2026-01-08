@@ -590,15 +590,20 @@ All documentation is organized in the `docs/` folder:
     - [Phase 1.4: String Types](docs/implementation-phases/phase-1.4-string-types.md) ✓
     - [Phase 1.5: Composite Types](docs/implementation-phases/phase-1.5-composite-types.md) ✓
     - [Phase 1.6: Standard Functions and Library](docs/implementation-phases/phase-1.6-standard-functions.md) ✓
-  - [Phase 2: Project Structure and User Types](docs/implementation-phases/) - PARTIALLY COMPLETE (3 sub-phases):
+  - [Phase 2: Project Structure, Types, and Language Features](docs/implementation-phases/) - PARTIALLY COMPLETE (8 sub-phases):
     - [Phase 2.1: Project Structure and Scheduling Model](docs/implementation-phases/phase-2.1-project-structure.md) ✓
     - [Phase 2.2: User-Defined Data Types](docs/implementation-phases/phase-2.2-user-data-types.md) ✓
     - [Phase 2.3: Located Variables Architecture](docs/implementation-phases/phase-2.3-located-variables.md) - PENDING
+    - [Phase 2.4: References and Pointers](docs/implementation-phases/phase-2.4-references.md) - PENDING
+    - [Phase 2.5: Nested Comments](docs/implementation-phases/phase-2.5-nested-comments.md) - PENDING
+    - [Phase 2.6: Variable Modifiers](docs/implementation-phases/phase-2.6-variable-modifiers.md) - PENDING
+    - [Phase 2.7: Namespaces](docs/implementation-phases/phase-2.7-namespaces.md) - PENDING
+    - [Phase 2.8: OOP Extensions](docs/implementation-phases/phase-2.8-oop-extensions.md) - PENDING
   - [Phase 3: Core ST Translation](docs/implementation-phases/phase-3-st-translation.md) - IN PROGRESS
   - [Phase 4: Functions and Function Calls](docs/implementation-phases/phase-4-functions.md)
   - [Phase 5: Function Blocks and Classes](docs/implementation-phases/phase-5-function-blocks.md)
   - [Phase 6: OpenPLC Integration](docs/implementation-phases/phase-6-openplc-integration.md)
-  - [Phase 7: IEC v3 Features and Full Coverage](docs/implementation-phases/phase-7-iec-v3-features.md)
+  - [Phase 7: Additional Languages and Full Coverage](docs/implementation-phases/phase-7-iec-v3-features.md)
   - [Phase 8: Optimizations and Advanced Debug Support](docs/implementation-phases/phase-8-optimizations.md)
 
 ## Technology Stack
