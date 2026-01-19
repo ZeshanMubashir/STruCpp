@@ -1,6 +1,6 @@
 # Phase 2.4: References and Pointers
 
-**Status**: PENDING
+**Status**: PARTIAL (Parser & Runtime Complete, Code Generation Pending Phase 3)
 
 **Duration**: 2-3 weeks
 
@@ -469,23 +469,30 @@ assignment_statement
 ## Deliverables
 
 ### Runtime Library
-- [ ] Add `NullReferenceException` class
-- [ ] Refactor `IEC_REF_TO<T>` to remove forcing support
-- [ ] Add null-check exception to `deref()` method
-- [ ] Implement `IEC_REFERENCE_TO<T>` for CODESYS compatibility
-- [ ] Add REF() overload for reference-to-reference
-- [ ] Update tests for new behavior
+- [x] Add `NullReferenceException` class
+- [x] Refactor `IEC_REF_TO<T>` to remove forcing support
+- [x] Add null-check exception to `deref()` method
+- [x] Implement `IEC_REFERENCE_TO<T>` for CODESYS compatibility
+- [x] Add REF() overload for reference-to-reference
+- [ ] Update tests for new behavior (pending Phase 3 integration)
 
 ### Parser
-- [ ] Add `REF_TO` type parsing
-- [ ] Add `REFERENCE_TO` type parsing
-- [ ] Add `REF()` operator parsing
-- [ ] Add `DREF()` function parsing
-- [ ] Add `^` (caret) dereference operator
-- [ ] Add `NULL` literal
-- [ ] Add `REF=` binding operator
+- [x] Add `REF_TO` type parsing
+- [x] Add `REFERENCE_TO` type parsing
+- [x] Add `REF()` operator parsing
+- [x] Add `DREF()` function parsing
+- [x] Add `^` (caret) dereference operator
+- [x] Add `NULL` literal
+- [x] Add `REF=` binding operator
 
-### Code Generator
+### AST
+- [x] Add `ReferenceKind` type (`none`, `ref_to`, `reference_to`)
+- [x] Add `referenceKind` to `TypeReference` node
+- [x] Add `RefExpression` node for `REF(variable)`
+- [x] Add `DrefExpression` node for `DREF(expression)`
+- [x] Add `RefAssignStatement` node for `REF=` binding
+
+### Code Generator (Pending Phase 3)
 - [ ] Generate `REF_TO<T>` type declarations
 - [ ] Generate `REFERENCE_TO<T>` type declarations
 - [ ] Generate `REF()` calls
@@ -494,14 +501,27 @@ assignment_statement
 - [ ] Generate `REF=` as `bind()` calls
 
 ### Testing
-- [ ] Unit tests for `IEC_REF_TO<T>` (without forcing)
-- [ ] Unit tests for null dereference exception
-- [ ] Unit tests for `IEC_REFERENCE_TO<T>`
-- [ ] Unit tests for reference to array elements
-- [ ] Unit tests for reference to struct fields
-- [ ] Unit tests for reference to references
-- [ ] Integration tests (ST to C++ compilation)
-- [ ] Golden file tests for generated code
+- [x] Unit tests for reference type parsing (16 tests passing)
+- [ ] Unit tests for `IEC_REF_TO<T>` (without forcing) - pending Phase 3
+- [ ] Unit tests for null dereference exception - pending Phase 3
+- [ ] Unit tests for `IEC_REFERENCE_TO<T>` - pending Phase 3
+- [ ] Unit tests for reference to array elements - pending Phase 3
+- [ ] Unit tests for reference to struct fields - pending Phase 3
+- [ ] Unit tests for reference to references - pending Phase 3
+- [ ] Integration tests (ST to C++ compilation) - pending Phase 3
+- [ ] Golden file tests for generated code - pending Phase 3
+
+### Implementation Notes
+
+**Completed in Initial Implementation:**
+- Lexer tokens: `REFERENCE_TO`, `DREF`, `RefAssign` (REF=)
+- Parser rules: `dataType` extended, `refExpression`, `drefExpression`, `refAssignStatement`
+- AST builder methods for all new node types
+- GATE function `isRefAssignAhead()` for disambiguation between `refAssignStatement` and `assignmentStatement`
+
+**Skipped/Deferred:**
+- Nested `REF_TO REF_TO` types require grammar extension (test skipped)
+- Statement-level tests require Phase 3 statement translation
 
 ## Success Criteria
 
