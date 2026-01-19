@@ -36,14 +36,14 @@ Parse IEC 61131-3 project structure, user-defined data types, and advanced langu
 **Sub-phases**:
 - [Phase 2.1: Project Structure and Scheduling Model](phase-2.1-project-structure.md) - Parse CONFIGURATION, RESOURCE, TASK, program instances ✓
 - [Phase 2.2: User-Defined Data Types](phase-2.2-user-data-types.md) - Parse TYPE declarations (enumerations, structures, arrays, subranges) ✓
-- [Phase 2.3: Located Variables Architecture](phase-2.3-located-variables.md) - Located variables (AT %IX0.0, %QX0.0) with runtime binding and forcing support
+- [Phase 2.3: Located Variables Architecture](phase-2.3-located-variables.md) - Located variables (AT %IX0.0, %QX0.0) with runtime binding and forcing support ✓
 - [Phase 2.4: References and Pointers](phase-2.4-references.md) - REF_TO, REF, DREF, ^, NULL
 - [Phase 2.5: Nested Comments](phase-2.5-nested-comments.md) - Support for nested comment blocks
 - [Phase 2.6: Variable Modifiers](phase-2.6-variable-modifiers.md) - RETAIN and CONSTANT code generation
 - [Phase 2.7: Namespaces](phase-2.7-namespaces.md) - Project-level namespace configuration (CODESYS-style)
 
 ### Phase 3: Core ST Translation
-**Status**: IN PROGRESS | **Duration**: 4-6 weeks
+**Status**: PENDING | **Duration**: 4-6 weeks
 
 Implement parser and code generator for basic ST expressions, assignments, and simple statements.
 
