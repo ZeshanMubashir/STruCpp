@@ -256,22 +256,50 @@ export class TypeCodeGenerator {
    * ST:
    *   IntArray : ARRAY[0..9] OF INT;
    *   Matrix : ARRAY[0..2, 0..2] OF REAL;
+   *   OffsetArray : ARRAY[3..7] OF INT;
    *
    * C++:
-   *   using IntArray = std::array<INT_t, 10>;
-   *   using Matrix = std::array<std::array<REAL_t, 3>, 3>;
+   *   using IntArray = Array1D<INT_t, 0, 9>;
+   *   using Matrix = Array2D<REAL_t, 0, 2, 0, 2>;
+   *   using OffsetArray = Array1D<INT_t, 3, 7>;
+   *
+   * Uses Array1D/2D/3D templates which preserve index bounds for proper
+   * IEC 61131-3 array semantics (arrays can have arbitrary start indices).
    */
   private generateArrayType(name: string, def: ArrayDefinition): void {
     const elementType = this.mapTypeToCpp(def.elementType.name);
+    const numDims = def.dimensions.length;
 
-    let cppType = elementType;
-    for (let i = def.dimensions.length - 1; i >= 0; i--) {
-      const dim = def.dimensions[i];
+    // Collect bounds for all dimensions
+    const bounds: Array<{ start: number; end: number }> = [];
+    for (const dim of def.dimensions) {
       if (dim) {
         const start = this.evaluateConstantExpression(dim.start);
         const end = this.evaluateConstantExpression(dim.end);
-        const size = end - start + 1;
-        cppType = `std::array<${cppType}, ${size}>`;
+        bounds.push({ start, end });
+      }
+    }
+
+    // Generate appropriate Array template based on dimensions
+    let cppType: string;
+    if (numDims === 1 && bounds[0]) {
+      cppType = `Array1D<${elementType}, ${bounds[0].start}, ${bounds[0].end}>`;
+    } else if (numDims === 2 && bounds[0] && bounds[1]) {
+      cppType = `Array2D<${elementType}, ${bounds[0].start}, ${bounds[0].end}, ${bounds[1].start}, ${bounds[1].end}>`;
+    } else if (numDims === 3 && bounds[0] && bounds[1] && bounds[2]) {
+      cppType = `Array3D<${elementType}, ${bounds[0].start}, ${bounds[0].end}, ${bounds[1].start}, ${bounds[1].end}, ${bounds[2].start}, ${bounds[2].end}>`;
+    } else {
+      // Fallback for higher dimensions: use nested std::array (loses bounds info)
+      // This maintains backwards compatibility but loses arbitrary index support
+      cppType = elementType;
+      for (let i = def.dimensions.length - 1; i >= 0; i--) {
+        const dim = def.dimensions[i];
+        if (dim) {
+          const start = this.evaluateConstantExpression(dim.start);
+          const end = this.evaluateConstantExpression(dim.end);
+          const size = end - start + 1;
+          cppType = `std::array<${cppType}, ${size}>`;
+        }
       }
     }
 
