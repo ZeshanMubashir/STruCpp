@@ -567,29 +567,21 @@ function findUnclosedBlockComment(
   let column = 1;
 
   while (i < source.length) {
-    // Track line/column for error reporting
-    if (source.charAt(i) === "\n") {
-      line++;
-      column = 1;
-    } else {
-      column++;
-    }
+    const char = source.charAt(i);
+    const nextChar = source.charAt(i + 1);
 
-    // Skip single-line comments
-    if (
-      source.charAt(i) === "/" &&
-      source.charAt(i + 1) === "/" &&
-      depth === 0
-    ) {
+    // Skip single-line comments (only outside block comments)
+    if (char === "/" && nextChar === "/" && depth === 0) {
       while (i < source.length && source.charAt(i) !== "\n") {
         i++;
         column++;
       }
+      // Don't advance past the newline - let the main loop handle it
       continue;
     }
 
     // Check for block comment start
-    if (source.charAt(i) === "(" && source.charAt(i + 1) === "*") {
+    if (char === "(" && nextChar === "*") {
       if (depth === 0) {
         commentStartOffset = i;
         commentStartLine = line;
@@ -597,20 +589,27 @@ function findUnclosedBlockComment(
       }
       depth++;
       i += 2;
-      column++;
+      column += 2;
       continue;
     }
 
     // Check for block comment end
-    if (source.charAt(i) === "*" && source.charAt(i + 1) === ")") {
+    if (char === "*" && nextChar === ")") {
       if (depth > 0) {
         depth--;
       }
       i += 2;
-      column++;
+      column += 2;
       continue;
     }
 
+    // Handle newlines
+    if (char === "\n") {
+      line++;
+      column = 1;
+    } else {
+      column++;
+    }
     i++;
   }
 

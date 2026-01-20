@@ -77,6 +77,26 @@ describe('STLexer', () => {
       expect(result.errors.length).toBeGreaterThan(0);
     });
 
+    it('should report correct line and column for unclosed comment', () => {
+      const source = `VAR x : INT;
+(* unclosed comment`;
+      const result = tokenize(source);
+      expect(result.errors.length).toBeGreaterThan(0);
+      const error = result.errors.find(e => e.message?.includes('Unclosed'));
+      expect(error).toBeDefined();
+      expect(error?.line).toBe(2);
+      expect(error?.column).toBe(1);
+    });
+
+    it('should report correct column for unclosed comment after code', () => {
+      const result = tokenize('VAR x (* unclosed');
+      expect(result.errors.length).toBeGreaterThan(0);
+      const error = result.errors.find(e => e.message?.includes('Unclosed'));
+      expect(error).toBeDefined();
+      expect(error?.line).toBe(1);
+      expect(error?.column).toBe(7);
+    });
+
     it('should handle comments with stars and parens inside', () => {
       const result = tokenize('(* contains ) and ( and * chars *)');
       expect(result.errors).toHaveLength(0);
