@@ -357,6 +357,86 @@ int main() {
     expect(cppResult.success).toBe(true);
   });
 
+  it('should compile a non-zero-based array type (ARRAY[3..7])', () => {
+    const source = `
+      TYPE
+        OffsetArray : ARRAY[3..7] OF INT;
+      END_TYPE
+
+      PROGRAM UseOffsetArray
+        VAR arr : OffsetArray; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    // Verify the generated code uses Array1D with correct bounds
+    expect(result.headerCode).toContain('Array1D<INT_t, 3, 7>');
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'offset_array');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile a 1-based array type (IEC convention)', () => {
+    const source = `
+      TYPE
+        OneBasedArray : ARRAY[1..10] OF REAL;
+      END_TYPE
+
+      PROGRAM UseOneBasedArray
+        VAR arr : OneBasedArray; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    // Verify the generated code uses Array1D with 1-based bounds
+    expect(result.headerCode).toContain('Array1D<REAL_t, 1, 10>');
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'one_based_array');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile a multi-dimensional non-zero-based array', () => {
+    const source = `
+      TYPE
+        OffsetMatrix : ARRAY[1..3, 5..8] OF DINT;
+      END_TYPE
+
+      PROGRAM UseOffsetMatrix
+        VAR m : OffsetMatrix; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    // Verify the generated code uses Array2D with correct bounds
+    expect(result.headerCode).toContain('Array2D<DINT_t, 1, 3, 5, 8>');
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'offset_matrix');
+    expect(cppResult.success).toBe(true);
+  });
+
+  it('should compile a 3D non-zero-based array', () => {
+    const source = `
+      TYPE
+        Cube3D : ARRAY[1..2, 3..5, 10..12] OF SINT;
+      END_TYPE
+
+      PROGRAM UseCube3D
+        VAR c : Cube3D; END_VAR
+      END_PROGRAM
+    `;
+    const result = compile(source);
+    expect(result.success).toBe(true);
+
+    // Verify the generated code uses Array3D with correct bounds
+    expect(result.headerCode).toContain('Array3D<SINT_t, 1, 2, 3, 5, 10, 12>');
+
+    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'cube_3d');
+    expect(cppResult.success).toBe(true);
+  });
+
   it('should compile a subrange type', () => {
     const source = `
       TYPE

@@ -199,7 +199,8 @@ describe('TypeCodeGenerator', () => {
       };
 
       const result = generator.generateTypes([type]);
-      expect(result).toContain('using IntArray = std::array<INT_t, 10>;');
+      // Uses Array1D with preserved bounds (0..9)
+      expect(result).toContain('using IntArray = Array1D<INT_t, 0, 9>;');
     });
 
     it('should generate multi-dimensional array type', () => {
@@ -218,7 +219,28 @@ describe('TypeCodeGenerator', () => {
       };
 
       const result = generator.generateTypes([type]);
-      expect(result).toContain('using Matrix = std::array<std::array<REAL_t, 3>, 3>;');
+      // Uses Array2D with preserved bounds for both dimensions
+      expect(result).toContain('using Matrix = Array2D<REAL_t, 0, 2, 0, 2>;');
+    });
+
+    it('should generate non-zero-based array type', () => {
+      const generator = new TypeCodeGenerator();
+      const arrayDef: ArrayDefinition = {
+        kind: 'ArrayDefinition',
+        sourceSpan: createSourceSpan(),
+        dimensions: [createArrayDim(3, 7)],
+        elementType: createTypeRef('INT'),
+      };
+      const type: TypeDeclaration = {
+        kind: 'TypeDeclaration',
+        sourceSpan: createSourceSpan(),
+        name: 'OffsetArray',
+        definition: arrayDef,
+      };
+
+      const result = generator.generateTypes([type]);
+      // Uses Array1D with preserved non-zero bounds (3..7)
+      expect(result).toContain('using OffsetArray = Array1D<INT_t, 3, 7>;');
     });
 
     it('should generate subrange type', () => {

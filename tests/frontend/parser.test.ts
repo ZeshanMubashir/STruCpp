@@ -227,6 +227,36 @@ describe('STParser', () => {
       expect(result.errors).toHaveLength(0);
     });
 
+    it('should parse a non-zero-based array type', () => {
+      const source = `
+        TYPE
+          OffsetArray : ARRAY[3..7] OF INT;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse a 1-based array type (IEC convention)', () => {
+      const source = `
+        TYPE
+          OneBasedArray : ARRAY[1..10] OF REAL;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should parse a multi-dimensional non-zero-based array', () => {
+      const source = `
+        TYPE
+          OffsetMatrix : ARRAY[1..3, 5..8] OF DINT;
+        END_TYPE
+      `;
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+    });
+
     it('should parse a subrange type', () => {
       const source = `
         TYPE
