@@ -346,7 +346,8 @@ export type Statement =
   | RepeatStatement
   | ExitStatement
   | ReturnStatement
-  | FunctionCallStatement;
+  | FunctionCallStatement
+  | ExternalCodePragma;
 
 /**
  * Assignment statement
@@ -464,6 +465,21 @@ export interface ReturnStatement extends ASTNode {
 export interface FunctionCallStatement extends ASTNode {
   kind: "FunctionCallStatement";
   call: FunctionCallExpression;
+}
+
+// =============================================================================
+// Pragmas
+// =============================================================================
+
+/**
+ * External code pragma: {external ... }
+ * Content is passed through AS-IS to generated C++ code.
+ * Allows mixing Structured Text with C/C++ code.
+ */
+export interface ExternalCodePragma extends ASTNode {
+  kind: "ExternalCodePragma";
+  /** Raw C/C++ code content (AS-IS, no transformation) */
+  code: string;
 }
 
 // =============================================================================
