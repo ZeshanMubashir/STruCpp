@@ -139,7 +139,13 @@ export class STParser extends CstParser {
       this.CONSUME(tokens.DirectAddress);
     });
     this.CONSUME(tokens.Colon);
-    this.SUBRULE(this.dataType);
+    this.OR([
+      {
+        ALT: () => this.SUBRULE(this.arrayType),
+        GATE: () => this.LA(1).tokenType === tokens.ARRAY,
+      },
+      { ALT: () => this.SUBRULE(this.dataType) },
+    ]);
     this.OPTION2(() => {
       this.CONSUME(tokens.Assign);
       this.SUBRULE(this.expression);
@@ -169,12 +175,22 @@ export class STParser extends CstParser {
   public singleTypeDeclaration = this.RULE("singleTypeDeclaration", () => {
     this.CONSUME(tokens.Identifier);
     this.CONSUME(tokens.Colon);
-    this.OR([
-      { ALT: () => this.SUBRULE(this.structType) },
-      { ALT: () => this.SUBRULE(this.simpleEnumType) },
-      { ALT: () => this.SUBRULE(this.arrayType) },
-      { ALT: () => this.SUBRULE(this.typedEnumOrSubrangeOrAlias) },
-    ]);
+    // IGNORE_AMBIGUITIES: ARRAY keyword has LONGER_ALT=Identifier which causes
+    // Chevrotain to see ambiguity between arrayType (starts with ARRAY token) and
+    // typedEnumOrSubrangeOrAlias (starts with Identifier). The GATE on arrayType
+    // ensures correct runtime disambiguation.
+    this.OR({
+      DEF: [
+        { ALT: () => this.SUBRULE(this.structType) },
+        { ALT: () => this.SUBRULE(this.simpleEnumType) },
+        {
+          ALT: () => this.SUBRULE(this.arrayType),
+          GATE: () => this.LA(1).tokenType === tokens.ARRAY,
+        },
+        { ALT: () => this.SUBRULE(this.typedEnumOrSubrangeOrAlias) },
+      ],
+      IGNORE_AMBIGUITIES: true,
+    });
     this.CONSUME(tokens.Semicolon);
   });
 
@@ -299,17 +315,29 @@ export class STParser extends CstParser {
   });
 
   /**
-   * Array dimension (start..end)
+   * Array dimension: either fixed bounds (start..end) or variable-length (*)
    */
   public arrayDimension = this.RULE("arrayDimension", () => {
-    this.SUBRULE(this.expression);
-    this.CONSUME(tokens.DoubleDot);
-    this.SUBRULE2(this.expression);
+    this.OR([
+      {
+        ALT: () => {
+          // Variable-length: ARRAY[*]
+          this.CONSUME(tokens.Star);
+        },
+      },
+      {
+        ALT: () => {
+          // Fixed bounds: ARRAY[1..10]
+          this.SUBRULE(this.expression);
+          this.CONSUME(tokens.DoubleDot);
+          this.SUBRULE2(this.expression);
+        },
+      },
+    ]);
   });
 
   /**
    * Data type reference (simple type, REF_TO type, or REFERENCE_TO type)
-   * Note: arrayType is handled separately in singleTypeDeclaration to avoid ambiguity
    */
   public dataType = this.RULE("dataType", () => {
     this.OPTION(() => {
@@ -424,6 +452,7 @@ export class STParser extends CstParser {
       { ALT: () => this.SUBRULE(this.repeatStatement) },
       { ALT: () => this.SUBRULE(this.exitStatement) },
       { ALT: () => this.SUBRULE(this.returnStatement) },
+      { ALT: () => this.SUBRULE(this.deleteStatement) },
       { ALT: () => this.SUBRULE(this.functionCallStatement) },
       { ALT: () => this.SUBRULE(this.externalCodePragma) },
     ]);
@@ -619,6 +648,17 @@ export class STParser extends CstParser {
     this.CONSUME(tokens.Semicolon);
   });
 
+  /**
+   * __DELETE(expression) statement - deallocate dynamic memory
+   */
+  public deleteStatement = this.RULE("deleteStatement", () => {
+    this.CONSUME(tokens.__DELETE);
+    this.CONSUME(tokens.LParen);
+    this.SUBRULE(this.expression);
+    this.CONSUME(tokens.RParen);
+    this.CONSUME(tokens.Semicolon);
+  });
+
   // ==========================================================================
   // Expressions
   // ==========================================================================
@@ -746,6 +786,7 @@ export class STParser extends CstParser {
       { ALT: () => this.SUBRULE(this.literal) },
       { ALT: () => this.SUBRULE(this.refExpression) },
       { ALT: () => this.SUBRULE(this.drefExpression) },
+      { ALT: () => this.SUBRULE(this.newExpression) },
       { ALT: () => this.SUBRULE(this.functionCall) },
       { ALT: () => this.SUBRULE(this.variable) },
       {
@@ -775,6 +816,20 @@ export class STParser extends CstParser {
     this.CONSUME(tokens.DREF);
     this.CONSUME(tokens.LParen);
     this.SUBRULE(this.expression);
+    this.CONSUME(tokens.RParen);
+  });
+
+  /**
+   * __NEW(dataType) or __NEW(dataType, expression) - allocate dynamic memory
+   */
+  public newExpression = this.RULE("newExpression", () => {
+    this.CONSUME(tokens.__NEW);
+    this.CONSUME(tokens.LParen);
+    this.SUBRULE(this.dataType);
+    this.OPTION(() => {
+      this.CONSUME(tokens.Comma);
+      this.SUBRULE(this.expression);
+    });
     this.CONSUME(tokens.RParen);
   });
 

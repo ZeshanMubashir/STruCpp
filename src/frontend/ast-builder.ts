@@ -36,11 +36,16 @@ import type {
   RefAssignStatement,
   RefExpression,
   DrefExpression,
+  NewExpression,
+  DeleteStatement,
   IfStatement,
+  ElsifClause,
   ForStatement,
   WhileStatement,
   RepeatStatement,
   CaseStatement,
+  CaseElement,
+  CaseLabel,
   ExitStatement,
   ReturnStatement,
   ExternalCodePragma,
@@ -505,8 +510,19 @@ export class ASTBuilder {
    */
   buildArrayDimension(node: CstNode): ArrayDimension {
     const children = node.children as CstChildren;
-    const expressions = getAllNodes(children.expression);
 
+    // Check for variable-length dimension: ARRAY[*]
+    const starTokens = getAllTokens(children.Star);
+    if (starTokens.length > 0) {
+      return {
+        kind: "ArrayDimension",
+        sourceSpan: nodeToSourceSpan(node),
+        isVariableLength: true,
+      };
+    }
+
+    // Fixed bounds: start..end
+    const expressions = getAllNodes(children.expression);
     const startExpr = expressions[0]
       ? this.buildExpression(expressions[0])
       : undefined;
@@ -514,14 +530,12 @@ export class ASTBuilder {
       ? this.buildExpression(expressions[1])
       : undefined;
 
-    const start = startExpr ?? this.createDummyLiteral(node);
-    const end = endExpr ?? this.createDummyLiteral(node);
-
     return {
       kind: "ArrayDimension",
       sourceSpan: nodeToSourceSpan(node),
-      start,
-      end,
+      isVariableLength: false,
+      start: startExpr ?? this.createDummyLiteral(node),
+      end: endExpr ?? this.createDummyLiteral(node),
     };
   }
 
@@ -769,20 +783,26 @@ export class ASTBuilder {
     const identifiers = getAllTokens(children.Identifier);
     const names = identifiers.map((t) => t.image);
 
-    // Get type reference from the dataType subrule
-    const dataTypeNode = getFirstNode(children.dataType);
+    // Check for inline array type first (ARRAY[...] OF type)
+    const arrayTypeNode = getFirstNode(children.arrayType);
     let type: TypeReference;
-    if (dataTypeNode) {
-      type = this.buildTypeReference(dataTypeNode);
+    if (arrayTypeNode) {
+      type = this.buildInlineArrayTypeReference(arrayTypeNode, node);
     } else {
-      // Fallback: default to INT if no type found
-      type = {
-        kind: "TypeReference",
-        sourceSpan: nodeToSourceSpan(node),
-        name: "INT",
-        isReference: false,
-        referenceKind: "none",
-      };
+      // Get type reference from the dataType subrule
+      const dataTypeNode = getFirstNode(children.dataType);
+      if (dataTypeNode) {
+        type = this.buildTypeReference(dataTypeNode);
+      } else {
+        // Fallback: default to INT if no type found
+        type = {
+          kind: "TypeReference",
+          sourceSpan: nodeToSourceSpan(node),
+          name: "INT",
+          isReference: false,
+          referenceKind: "none",
+        };
+      }
     }
 
     // Get initial value if present
@@ -821,6 +841,7 @@ export class ASTBuilder {
    */
   buildTypeReference(node: CstNode): TypeReference {
     const children = node.children as CstChildren;
+
     const nameToken = getFirstToken(children.Identifier);
     const name = nameToken?.image ?? "INT";
     const isRefTo = !!children.REF_TO;
@@ -840,6 +861,51 @@ export class ASTBuilder {
       name,
       isReference,
       referenceKind,
+    };
+  }
+
+  /**
+   * Build a TypeReference for an inline ARRAY type.
+   * For VLA: ARRAY[*] OF INT → name "__VLA_1D_INT"
+   * For fixed: ARRAY[1..10] OF INT → name "__INLINE_ARRAY_INT"
+   */
+  private buildInlineArrayTypeReference(arrayTypeNode: CstNode, parentNode: CstNode): TypeReference {
+    const arrayChildren = arrayTypeNode.children as CstChildren;
+
+    // Get dimensions to check for variable-length
+    const dimNodes = getAllNodes(arrayChildren.arrayDimension);
+    const ndims = dimNodes.length;
+    let isVLA = false;
+    for (const dimNode of dimNodes) {
+      const dimChildren = dimNode.children as CstChildren;
+      if (getAllTokens(dimChildren.Star).length > 0) {
+        isVLA = true;
+      }
+    }
+
+    // Get element type from nested dataType
+    const elementTypeNode = getFirstNode(arrayChildren.dataType);
+    let elementTypeName = "INT";
+    if (elementTypeNode) {
+      const elemChildren = elementTypeNode.children as CstChildren;
+      const elemNameToken = getFirstToken(elemChildren.Identifier);
+      if (elemNameToken) {
+        elementTypeName = elemNameToken.image;
+      }
+    }
+
+    // Create synthetic name based on whether it's VLA or fixed
+    const dimSuffix = ndims > 1 ? `${ndims}D` : "1D";
+    const name = isVLA
+      ? `__VLA_${dimSuffix}_${elementTypeName}`
+      : `__INLINE_ARRAY_${elementTypeName}`;
+
+    return {
+      kind: "TypeReference",
+      sourceSpan: nodeToSourceSpan(parentNode),
+      name,
+      isReference: false,
+      referenceKind: "none",
     };
   }
 
@@ -875,15 +941,20 @@ export class ASTBuilder {
     if (children.caseStatement) {
       return this.buildCaseStatement(getFirstNode(children.caseStatement)!);
     }
-    if (children.EXIT) {
-      return this.buildExitStatement(node);
+    if (children.exitStatement) {
+      return this.buildExitStatement(getFirstNode(children.exitStatement)!);
     }
-    if (children.RETURN) {
-      return this.buildReturnStatement(node);
+    if (children.returnStatement) {
+      return this.buildReturnStatement(getFirstNode(children.returnStatement)!);
     }
     if (children.externalCodePragma) {
       return this.buildExternalCodePragma(
         getFirstNode(children.externalCodePragma)!,
+      );
+    }
+    if (children.deleteStatement) {
+      return this.buildDeleteStatement(
+        getFirstNode(children.deleteStatement)!,
       );
     }
 
@@ -939,24 +1010,47 @@ export class ASTBuilder {
    */
   buildIfStatement(node: CstNode): IfStatement {
     const children = node.children as CstChildren;
-    const exprNode = getFirstNode(children.expression);
-    const condition = exprNode
-      ? this.buildExpression(exprNode)
+
+    // expressions: [0] = IF condition, [1..] = ELSIF conditions
+    const expressions = getAllNodes(children.expression);
+    const condition = expressions[0]
+      ? this.buildExpression(expressions[0])
       : this.createDummyLiteral(node);
 
-    const thenStatements: Statement[] = [];
-    for (const stmtNode of getAllNodes(children.statement)) {
-      const stmt = this.buildStatement(stmtNode);
-      if (stmt) thenStatements.push(stmt);
+    // statementLists: [0] = THEN body, [1..n] = ELSIF bodies, [n+1] = ELSE body (if present)
+    const statementLists = getAllNodes(children.statementList);
+    const thenStatements = this.extractStatementsFromList(statementLists[0]);
+
+    // ELSIF clauses
+    const elsifTokens = getAllTokens(children.ELSIF);
+    const elsifClauses: ElsifClause[] = [];
+    for (let i = 0; i < elsifTokens.length; i++) {
+      const elsifCondition = (expressions[i + 1]
+        ? this.buildExpression(expressions[i + 1]!)
+        : undefined) ?? this.createDummyLiteral(node);
+      const elsifStatements = this.extractStatementsFromList(statementLists[i + 1]);
+      elsifClauses.push({
+        kind: "ElsifClause",
+        sourceSpan: tokenToSourceSpan(elsifTokens[i]!),
+        condition: elsifCondition,
+        statements: elsifStatements,
+      });
     }
+
+    // ELSE body (last statementList if ELSE token is present)
+    const elseTokens = getAllTokens(children.ELSE);
+    const elseStatements =
+      elseTokens.length > 0
+        ? this.extractStatementsFromList(statementLists[elsifTokens.length + 1])
+        : [];
 
     return {
       kind: "IfStatement",
       sourceSpan: nodeToSourceSpan(node),
       condition: condition!,
       thenStatements,
-      elsifClauses: [],
-      elseStatements: [],
+      elsifClauses,
+      elseStatements,
     };
   }
 
@@ -979,11 +1073,8 @@ export class ASTBuilder {
       ? this.buildExpression(expressions[2])
       : undefined;
 
-    const body: Statement[] = [];
-    for (const stmtNode of getAllNodes(children.statement)) {
-      const stmt = this.buildStatement(stmtNode);
-      if (stmt) body.push(stmt);
-    }
+    const stmtListNode = getFirstNode(children.statementList);
+    const body = this.extractStatementsFromList(stmtListNode);
 
     // Use conditional spreading for optional step to comply with exactOptionalPropertyTypes
     return {
@@ -1007,11 +1098,8 @@ export class ASTBuilder {
       ? this.buildExpression(exprNode)
       : this.createDummyLiteral(node);
 
-    const body: Statement[] = [];
-    for (const stmtNode of getAllNodes(children.statement)) {
-      const stmt = this.buildStatement(stmtNode);
-      if (stmt) body.push(stmt);
-    }
+    const stmtListNode = getFirstNode(children.statementList);
+    const body = this.extractStatementsFromList(stmtListNode);
 
     return {
       kind: "WhileStatement",
@@ -1031,11 +1119,8 @@ export class ASTBuilder {
       ? this.buildExpression(exprNode)
       : this.createDummyLiteral(node);
 
-    const body: Statement[] = [];
-    for (const stmtNode of getAllNodes(children.statement)) {
-      const stmt = this.buildStatement(stmtNode);
-      if (stmt) body.push(stmt);
-    }
+    const stmtListNode = getFirstNode(children.statementList);
+    const body = this.extractStatementsFromList(stmtListNode);
 
     return {
       kind: "RepeatStatement",
@@ -1055,12 +1140,71 @@ export class ASTBuilder {
       ? this.buildExpression(exprNode)
       : this.createDummyLiteral(node);
 
+    // Case elements
+    const cases: CaseElement[] = [];
+    for (const caseNode of getAllNodes(children.caseElement)) {
+      cases.push(this.buildCaseElement(caseNode));
+    }
+
+    // ELSE body
+    const elseTokens = getAllTokens(children.ELSE);
+    let elseStatements: Statement[] = [];
+    if (elseTokens.length > 0) {
+      const stmtListNode = getFirstNode(children.statementList);
+      elseStatements = this.extractStatementsFromList(stmtListNode);
+    }
+
     return {
       kind: "CaseStatement",
       sourceSpan: nodeToSourceSpan(node),
       selector: selector!,
-      cases: [],
-      elseStatements: [],
+      cases,
+      elseStatements,
+    };
+  }
+
+  /**
+   * Build a CaseElement from a CST node.
+   */
+  buildCaseElement(node: CstNode): CaseElement {
+    const children = node.children as CstChildren;
+
+    // Labels
+    const labels: CaseLabel[] = [];
+    for (const labelNode of getAllNodes(children.caseLabel)) {
+      labels.push(this.buildCaseLabel(labelNode));
+    }
+
+    // Statements
+    const stmtListNode = getFirstNode(children.statementList);
+    const statements = this.extractStatementsFromList(stmtListNode);
+
+    return {
+      kind: "CaseElement",
+      sourceSpan: nodeToSourceSpan(node),
+      labels,
+      statements,
+    };
+  }
+
+  /**
+   * Build a CaseLabel from a CST node.
+   */
+  buildCaseLabel(node: CstNode): CaseLabel {
+    const children = node.children as CstChildren;
+    const expressions = getAllNodes(children.expression);
+    const start = expressions[0]
+      ? this.buildExpression(expressions[0])
+      : this.createDummyLiteral(node);
+    const end = expressions[1]
+      ? this.buildExpression(expressions[1])
+      : undefined;
+
+    return {
+      kind: "CaseLabel",
+      sourceSpan: nodeToSourceSpan(node),
+      start: start!,
+      ...(end !== undefined ? { end } : {}),
     };
   }
 
@@ -1251,14 +1395,27 @@ export class ASTBuilder {
     let left = this.buildAddExpression(firstAddExpr);
     if (!left) return undefined;
 
-    // Get comparison operators
-    const operators: BinaryOperator[] = [];
-    if (children.Equal) operators.push("=");
-    if (children.NotEqual) operators.push("<>");
-    if (children.LessThan) operators.push("<");
-    if (children.GreaterThan) operators.push(">");
-    if (children.LessEqual) operators.push("<=");
-    if (children.GreaterEqual) operators.push(">=");
+    // Collect all comparison operator tokens with their operators, sorted by position
+    const opTokens: Array<{ offset: number; op: BinaryOperator }> = [];
+    for (const tok of getAllTokens(children.Equal)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "=" });
+    }
+    for (const tok of getAllTokens(children.NotEqual)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "<>" });
+    }
+    for (const tok of getAllTokens(children.Less)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "<" });
+    }
+    for (const tok of getAllTokens(children.Greater)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: ">" });
+    }
+    for (const tok of getAllTokens(children.LessEqual)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "<=" });
+    }
+    for (const tok of getAllTokens(children.GreaterEqual)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: ">=" });
+    }
+    opTokens.sort((a, b) => a.offset - b.offset);
 
     for (let i = 1; i < addExprs.length; i++) {
       const addExpr = addExprs[i];
@@ -1266,7 +1423,7 @@ export class ASTBuilder {
       const right = this.buildAddExpression(addExpr);
       if (!right) continue;
 
-      const op = operators[i - 1] ?? "=";
+      const op = opTokens[i - 1]?.op ?? "=";
       left = {
         kind: "BinaryExpression",
         sourceSpan: nodeToSourceSpan(node),
@@ -1295,9 +1452,15 @@ export class ASTBuilder {
     let left = this.buildMulExpression(firstMulExpr);
     if (!left) return undefined;
 
-    // Get add/sub operators
-    const plusTokens = getAllTokens(children.Plus);
-    const minusTokens = getAllTokens(children.Minus);
+    // Collect all add/sub operator tokens, sorted by position
+    const opTokens: Array<{ offset: number; op: BinaryOperator }> = [];
+    for (const tok of getAllTokens(children.Plus)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "+" });
+    }
+    for (const tok of getAllTokens(children.Minus)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "-" });
+    }
+    opTokens.sort((a, b) => a.offset - b.offset);
 
     for (let i = 1; i < mulExprs.length; i++) {
       const mulExpr = mulExprs[i];
@@ -1305,9 +1468,7 @@ export class ASTBuilder {
       const right = this.buildMulExpression(mulExpr);
       if (!right) continue;
 
-      // Determine operator based on token positions
-      const op: BinaryOperator =
-        plusTokens.length > minusTokens.length ? "+" : "-";
+      const op = opTokens[i - 1]?.op ?? "+";
       left = {
         kind: "BinaryExpression",
         sourceSpan: nodeToSourceSpan(node),
@@ -1336,17 +1497,26 @@ export class ASTBuilder {
     let left = this.buildPowerExpression(firstPowerExpr);
     if (!left) return undefined;
 
+    // Collect all mul/div/mod operator tokens, sorted by position
+    const opTokens: Array<{ offset: number; op: BinaryOperator }> = [];
+    for (const tok of getAllTokens(children.Star)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "*" });
+    }
+    for (const tok of getAllTokens(children.Slash)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "/" });
+    }
+    for (const tok of getAllTokens(children.MOD)) {
+      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "MOD" });
+    }
+    opTokens.sort((a, b) => a.offset - b.offset);
+
     for (let i = 1; i < powerExprs.length; i++) {
       const powerExpr = powerExprs[i];
       if (!powerExpr) continue;
       const right = this.buildPowerExpression(powerExpr);
       if (!right) continue;
 
-      // Determine operator
-      let op: BinaryOperator = "*";
-      if (children.Divide) op = "/";
-      if (children.MOD) op = "MOD";
-
+      const op = opTokens[i - 1]?.op ?? "*";
       left = {
         kind: "BinaryExpression",
         sourceSpan: nodeToSourceSpan(node),
@@ -1424,6 +1594,18 @@ export class ASTBuilder {
       }
     }
 
+    if (children.Plus) {
+      const operand = this.buildPrimaryExpression(node);
+      if (operand) {
+        return {
+          kind: "UnaryExpression",
+          sourceSpan: nodeToSourceSpan(node),
+          operator: "+" as UnaryOperator,
+          operand,
+        };
+      }
+    }
+
     return this.buildPrimaryExpression(node);
   }
 
@@ -1448,6 +1630,11 @@ export class ASTBuilder {
       return this.buildDrefExpression(getFirstNode(children.drefExpression)!);
     }
 
+    // Check for __NEW(type) or __NEW(type, size) expression
+    if (children.newExpression) {
+      return this.buildNewExpression(getFirstNode(children.newExpression)!);
+    }
+
     // Check for variable
     if (children.variable) {
       return this.buildVariableExpression(getFirstNode(children.variable)!);
@@ -1455,7 +1642,14 @@ export class ASTBuilder {
 
     // Check for parenthesized expression
     if (children.expression) {
-      return this.buildExpression(getFirstNode(children.expression)!);
+      const innerExpr = this.buildExpression(getFirstNode(children.expression)!);
+      if (innerExpr) {
+        return {
+          kind: "ParenthesizedExpression",
+          sourceSpan: nodeToSourceSpan(node),
+          expression: innerExpr,
+        } as Expression;
+      }
     }
 
     // Check for primary expression
@@ -1500,6 +1694,61 @@ export class ASTBuilder {
       kind: "DrefExpression",
       sourceSpan: nodeToSourceSpan(node),
       operand: operand!,
+    };
+  }
+
+  /**
+   * Build a NewExpression from a CST node.
+   * Handles: __NEW(dataType) or __NEW(dataType, expression)
+   */
+  buildNewExpression(node: CstNode): NewExpression {
+    const children = node.children as CstChildren;
+
+    // Get the allocation type from dataType
+    const dataTypeNode = getFirstNode(children.dataType);
+    const allocationType: TypeReference = dataTypeNode
+      ? this.buildTypeReference(dataTypeNode)
+      : {
+          kind: "TypeReference",
+          sourceSpan: nodeToSourceSpan(node),
+          name: "INT",
+          isReference: false,
+          referenceKind: "none",
+        };
+
+    // Get optional array size from expression
+    let arraySize: Expression | undefined;
+    const exprNode = getFirstNode(children.expression);
+    if (exprNode) {
+      const expr = this.buildExpression(exprNode);
+      if (expr) {
+        arraySize = expr;
+      }
+    }
+
+    return {
+      kind: "NewExpression",
+      sourceSpan: nodeToSourceSpan(node),
+      allocationType,
+      ...(arraySize !== undefined ? { arraySize } : {}),
+    };
+  }
+
+  /**
+   * Build a DeleteStatement from a CST node.
+   * Handles: __DELETE(expression)
+   */
+  buildDeleteStatement(node: CstNode): DeleteStatement {
+    const children = node.children as CstChildren;
+    const exprNode = getFirstNode(children.expression);
+    const pointer = exprNode
+      ? this.buildExpression(exprNode)
+      : this.createDummyVariable(node);
+
+    return {
+      kind: "DeleteStatement",
+      sourceSpan: nodeToSourceSpan(node),
+      pointer: pointer!,
     };
   }
 
@@ -1689,7 +1938,7 @@ export class ASTBuilder {
     // Check for dereference operator (^)
     const isDereference = !!children.Caret;
 
-    // Get additional field access identifiers
+    // Get additional field access identifiers (Identifier[0] is the variable name)
     const allIdentifiers = getAllTokens(children.Identifier);
     const fieldAccess: string[] = [];
     for (let i = 1; i < allIdentifiers.length; i++) {
@@ -1699,12 +1948,18 @@ export class ASTBuilder {
       }
     }
 
-    // TODO: Handle subscripts in Phase 3+
+    // Extract subscript expressions from array access: arr[i], arr[i,j], etc.
+    const subscripts: Expression[] = [];
+    for (const exprNode of getAllNodes(children.expression)) {
+      const expr = this.buildExpression(exprNode);
+      if (expr) subscripts.push(expr);
+    }
+
     return {
       kind: "VariableExpression",
       sourceSpan: nodeToSourceSpan(node),
       name,
-      subscripts: [],
+      subscripts,
       fieldAccess,
       isDereference,
     };
@@ -1727,6 +1982,21 @@ export class ASTBuilder {
   /**
    * Create a dummy literal expression for error recovery.
    */
+  /**
+   * Extract statements from a statementList CST node.
+   */
+  private extractStatementsFromList(listNode?: CstNode): Statement[] {
+    const stmts: Statement[] = [];
+    if (listNode) {
+      const listChildren = listNode.children as CstChildren;
+      for (const stmtNode of getAllNodes(listChildren.statement)) {
+        const stmt = this.buildStatement(stmtNode);
+        if (stmt) stmts.push(stmt);
+      }
+    }
+    return stmts;
+  }
+
   private createDummyLiteral(node: CstNode): LiteralExpression {
     return {
       kind: "LiteralExpression",

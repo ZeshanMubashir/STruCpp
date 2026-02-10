@@ -9,6 +9,19 @@ import type {
   CompilationUnit,
   VarDeclaration,
   Statement,
+  Expression,
+  AssignmentStatement,
+  RefAssignStatement,
+  IfStatement,
+  CaseStatement,
+  ForStatement,
+  WhileStatement,
+  RepeatStatement,
+  FunctionCallExpression,
+  BinaryExpression,
+  UnaryExpression,
+  LiteralExpression,
+  VariableExpression,
   ExternalCodePragma,
 } from "../frontend/ast.js";
 import type { SymbolTables } from "../semantic/symbol-table.js";
@@ -165,6 +178,9 @@ export class CodeGenerator {
   /** Store AST for looking up program bodies when using project model */
   private ast?: CompilationUnit;
 
+  /** Current function name (for redirecting function name := to result variable) */
+  private currentFunctionName: string | undefined;
+
   constructor(
     private readonly _symbolTables: SymbolTables,
     options: Partial<CodeGenOptions> = {},
@@ -172,9 +188,28 @@ export class CodeGenerator {
     this.options = { ...defaultCodeGenOptions, ...options };
   }
 
+  /** TypeCodeGenerator instance for type mapping */
+  private typeCodeGen = new TypeCodeGenerator();
+
   /** Get symbol tables (for future use in Phase 3+) */
   get symbolTables(): SymbolTables {
     return this._symbolTables;
+  }
+
+  /**
+   * Map a variable type name to its C++ type string.
+   * Handles VLA synthetic names (__VLA_1D_INT → ArrayView1D<INT_t>)
+   * and regular types (INT → IEC_INT).
+   */
+  private mapVarTypeToCpp(typeName: string): string {
+    // Handle VLA synthetic names: __VLA_{ndims}D_{elementType}
+    const vlaMatch = typeName.match(/^__VLA_(\d+)D_(.+)$/);
+    if (vlaMatch) {
+      const ndims = vlaMatch[1];
+      const elemType = this.typeCodeGen.mapTypeToCpp(vlaMatch[2]!);
+      return `ArrayView${ndims}D<${elemType}>`;
+    }
+    return `IEC_${typeName}`;
   }
 
   /**
@@ -231,6 +266,7 @@ export class CodeGenerator {
     this.emitHeader('#include "iec_located.hpp"');
     this.emitHeader('#include "iec_std_lib.hpp"');
     this.emitHeader('#include "iec_enum.hpp"');
+    this.emitHeader('#include "iec_memory.hpp"');
     this.emitHeader("#include <array>");
     this.emitHeader("#include <cstddef>");
     this.emitHeader("#include <string>");
@@ -456,20 +492,44 @@ export class CodeGenerator {
   private generateFunctionHeaderDeclaration(
     func: CompilationUnit["functions"][0],
   ): void {
+    const params = this.generateFunctionParams(func);
+
+    this.emitHeader(
+      `IEC_${func.returnType.name} ${func.name}(${params.join(", ")});`,
+    );
+  }
+
+  /**
+   * Generate function parameter list including VAR_INPUT and VAR_IN_OUT.
+   * VAR_IN_OUT parameters are passed by reference.
+   * VLA types use ArrayView instead of IECVar reference.
+   */
+  private generateFunctionParams(
+    func: CompilationUnit["functions"][0],
+  ): string[] {
     const params: string[] = [];
     for (const block of func.varBlocks) {
       if (block.blockType === "VAR_INPUT") {
         for (const decl of block.declarations) {
           for (const name of decl.names) {
-            params.push(`IEC_${decl.type.name} ${name}`);
+            params.push(`${this.mapVarTypeToCpp(decl.type.name)} ${name}`);
+          }
+        }
+      } else if (block.blockType === "VAR_IN_OUT") {
+        for (const decl of block.declarations) {
+          const cppType = this.mapVarTypeToCpp(decl.type.name);
+          for (const name of decl.names) {
+            // VLA types (ArrayView) are already reference-like; others need &
+            if (decl.type.name.startsWith("__VLA_")) {
+              params.push(`${cppType} ${name}`);
+            } else {
+              params.push(`${cppType}& ${name}`);
+            }
           }
         }
       }
     }
-
-    this.emitHeader(
-      `IEC_${func.returnType.name} ${func.name}(${params.join(", ")});`,
-    );
+    return params;
   }
 
   /**
@@ -484,9 +544,9 @@ export class CodeGenerator {
     for (const block of prog.varBlocks) {
       for (const decl of block.declarations) {
         if (decl.initialValue !== undefined) {
+          const initExpr = this.generateExpression(decl.initialValue);
           for (const name of decl.names) {
-            // TODO: Generate proper initialization in Phase 3+
-            this.emit(`    // ${name} = <initial value>;`);
+            this.emit(`    ${name} = ${initExpr};`);
           }
         }
       }
@@ -540,27 +600,20 @@ export class CodeGenerator {
   private generateFunctionImplementation(
     func: CompilationUnit["functions"][0],
   ): void {
-    const params: string[] = [];
-    for (const block of func.varBlocks) {
-      if (block.blockType === "VAR_INPUT") {
-        for (const decl of block.declarations) {
-          for (const name of decl.names) {
-            params.push(`IEC_${decl.type.name} ${name}`);
-          }
-        }
-      }
-    }
+    const params = this.generateFunctionParams(func);
 
     this.emit(
       `IEC_${func.returnType.name} ${func.name}(${params.join(", ")}) {`,
     );
     this.emit(`    IEC_${func.returnType.name} ${func.name}_result;`);
+    // Set function context so assignments to function name redirect to result variable
+    this.currentFunctionName = func.name;
     if (func.body.length > 0) {
-      // Generate statements (Phase 2.8: only ExternalCodePragma; Phase 3+: all statements)
       this.generateStatements(func.body);
     } else if (this.options.sourceComments) {
       this.emit("    // Empty function body");
     }
+    this.currentFunctionName = undefined;
     this.emit(`    return ${func.name}_result;`);
     this.emit("}");
     this.emit("");
@@ -988,20 +1041,76 @@ export class CodeGenerator {
 
   /**
    * Generate code for a statement.
-   * Phase 2.8: Only handles ExternalCodePragma; other statements are Phase 3+.
    */
   protected generateStatement(stmt: Statement, indent: string = "    "): void {
     switch (stmt.kind) {
+      case "AssignmentStatement":
+        this.generateAssignmentStatement(stmt, indent);
+        break;
+      case "RefAssignStatement":
+        this.generateRefAssignStatement(stmt, indent);
+        break;
+      case "FunctionCallStatement":
+        this.emit(`${indent}${this.generateExpression(stmt.call)};`);
+        break;
+      case "IfStatement":
+        this.generateIfStatement(stmt, indent);
+        break;
+      case "CaseStatement":
+        this.generateCaseStatement(stmt, indent);
+        break;
+      case "ForStatement":
+        this.generateForStatement(stmt, indent);
+        break;
+      case "WhileStatement":
+        this.generateWhileStatement(stmt, indent);
+        break;
+      case "RepeatStatement":
+        this.generateRepeatStatement(stmt, indent);
+        break;
+      case "ExitStatement":
+        this.emit(`${indent}break;`);
+        break;
+      case "ReturnStatement":
+        this.generateReturnStatement(indent);
+        break;
       case "ExternalCodePragma":
         this.generateExternalCodePragma(stmt, indent);
         break;
-      default:
-        // Other statements are implemented in Phase 3+
-        if (this.options.sourceComments) {
-          this.emit(`${indent}// TODO: ${stmt.kind} (Phase 3+)`);
-        }
+      case "DeleteStatement":
+        this.emit(`${indent}strucpp::iec_delete(${this.generateExpression(stmt.pointer)});`);
         break;
+      default: {
+        const _exhaustive: never = stmt;
+        throw new Error(`Unhandled statement kind: ${(_exhaustive as Statement).kind}`);
+      }
     }
+  }
+
+  /**
+   * Generate code for an assignment statement.
+   * ST: target := value;  →  C++: target = value;
+   */
+  private generateAssignmentStatement(
+    stmt: AssignmentStatement,
+    indent: string,
+  ): void {
+    const target = this.generateExpression(stmt.target);
+    const value = this.generateExpression(stmt.value);
+    this.emit(`${indent}${target} = ${value};`);
+  }
+
+  /**
+   * Generate code for a REF= assignment (rebind REFERENCE_TO).
+   * ST: target REF= source;  →  C++: target.bind(source);
+   */
+  private generateRefAssignStatement(
+    stmt: RefAssignStatement,
+    indent: string,
+  ): void {
+    const target = this.generateExpression(stmt.target);
+    const source = this.generateExpression(stmt.source);
+    this.emit(`${indent}${target}.bind(${source});`);
   }
 
   /**
@@ -1025,6 +1134,152 @@ export class CodeGenerator {
     }
   }
 
+  // ===========================================================================
+  // Control Flow Statement Generation (Phase 3.2)
+  // ===========================================================================
+
+  /**
+   * Generate code for an IF statement.
+   * ST: IF/ELSIF/ELSE → C++: if/else if/else
+   */
+  private generateIfStatement(stmt: IfStatement, indent: string): void {
+    this.emit(`${indent}if (${this.generateExpression(stmt.condition)}) {`);
+    this.generateStatements(stmt.thenStatements, indent + this.options.indent);
+
+    for (const elsif of stmt.elsifClauses) {
+      this.emit(`${indent}} else if (${this.generateExpression(elsif.condition)}) {`);
+      this.generateStatements(elsif.statements, indent + this.options.indent);
+    }
+
+    if (stmt.elseStatements.length > 0) {
+      this.emit(`${indent}} else {`);
+      this.generateStatements(stmt.elseStatements, indent + this.options.indent);
+    }
+
+    this.emit(`${indent}}`);
+  }
+
+  /**
+   * Generate code for a CASE statement.
+   * ST: CASE/OF → C++: switch/case with range expansion
+   */
+  private generateCaseStatement(stmt: CaseStatement, indent: string): void {
+    this.emit(`${indent}switch (${this.generateExpression(stmt.selector)}) {`);
+    const innerIndent = indent + this.options.indent;
+    const bodyIndent = innerIndent + this.options.indent;
+
+    for (const caseElement of stmt.cases) {
+      for (const label of caseElement.labels) {
+        if (label.end) {
+          // Range: expand to individual case labels
+          const startVal = this.evaluateLiteralInt(label.start);
+          const endVal = this.evaluateLiteralInt(label.end);
+          if (startVal !== undefined && endVal !== undefined) {
+            for (let i = startVal; i <= endVal; i++) {
+              this.emit(`${innerIndent}case ${i}:`);
+            }
+          } else {
+            // Fallback: emit as comment with expression
+            this.emit(`${innerIndent}case ${this.generateExpression(label.start)}: // range to ${this.generateExpression(label.end)}`);
+          }
+        } else {
+          this.emit(`${innerIndent}case ${this.generateExpression(label.start)}:`);
+        }
+      }
+      this.generateStatements(caseElement.statements, bodyIndent);
+      this.emit(`${bodyIndent}break;`);
+    }
+
+    if (stmt.elseStatements.length > 0) {
+      this.emit(`${innerIndent}default:`);
+      this.generateStatements(stmt.elseStatements, bodyIndent);
+      this.emit(`${bodyIndent}break;`);
+    }
+
+    this.emit(`${indent}}`);
+  }
+
+  /**
+   * Generate code for a FOR statement.
+   * ST: FOR i := start TO end BY step DO → C++: for (i = start; i <= end; i += step)
+   */
+  private generateForStatement(stmt: ForStatement, indent: string): void {
+    const varName = stmt.controlVariable;
+    const start = this.generateExpression(stmt.start);
+    const end = this.generateExpression(stmt.end);
+
+    if (stmt.step) {
+      const stepExpr = this.generateExpression(stmt.step);
+      // Determine direction from step when it's a literal
+      const stepVal = this.evaluateLiteralInt(stmt.step);
+      if (stepVal !== undefined && stepVal < 0) {
+        this.emit(`${indent}for (${varName} = ${start}; ${varName} >= ${end}; ${varName} += ${stepExpr}) {`);
+      } else {
+        this.emit(`${indent}for (${varName} = ${start}; ${varName} <= ${end}; ${varName} += ${stepExpr}) {`);
+      }
+    } else {
+      // Default step is 1, ascending
+      this.emit(`${indent}for (${varName} = ${start}; ${varName} <= ${end}; ${varName}++) {`);
+    }
+
+    this.generateStatements(stmt.body, indent + this.options.indent);
+    this.emit(`${indent}}`);
+  }
+
+  /**
+   * Generate code for a WHILE statement.
+   * ST: WHILE condition DO → C++: while (condition)
+   */
+  private generateWhileStatement(stmt: WhileStatement, indent: string): void {
+    this.emit(`${indent}while (${this.generateExpression(stmt.condition)}) {`);
+    this.generateStatements(stmt.body, indent + this.options.indent);
+    this.emit(`${indent}}`);
+  }
+
+  /**
+   * Generate code for a REPEAT statement.
+   * ST: REPEAT ... UNTIL condition → C++: do { ... } while (!(condition))
+   */
+  private generateRepeatStatement(stmt: RepeatStatement, indent: string): void {
+    this.emit(`${indent}do {`);
+    this.generateStatements(stmt.body, indent + this.options.indent);
+    this.emit(`${indent}} while (!(${this.generateExpression(stmt.condition)}));`);
+  }
+
+  /**
+   * Generate code for a RETURN statement.
+   * In functions: return functionName_result;
+   * In programs/FBs: return;
+   */
+  private generateReturnStatement(indent: string): void {
+    if (this.currentFunctionName) {
+      this.emit(`${indent}return ${this.currentFunctionName}_result;`);
+    } else {
+      this.emit(`${indent}return;`);
+    }
+  }
+
+  /**
+   * Evaluate an expression as a literal integer value (for CASE ranges and FOR step direction).
+   * Returns undefined if the expression is not a compile-time integer constant.
+   */
+  private evaluateLiteralInt(expr: Expression): number | undefined {
+    if (expr.kind === "LiteralExpression" && expr.literalType === "INT") {
+      return typeof expr.value === "number"
+        ? expr.value
+        : parseInt(String(expr.value), 10);
+    }
+    if (
+      expr.kind === "UnaryExpression" &&
+      expr.operator === "-" &&
+      expr.operand.kind === "LiteralExpression"
+    ) {
+      const val = this.evaluateLiteralInt(expr.operand);
+      return val !== undefined ? -val : undefined;
+    }
+    return undefined;
+  }
+
   /**
    * Generate code for a list of statements.
    */
@@ -1032,6 +1287,173 @@ export class CodeGenerator {
     for (const stmt of stmts) {
       this.generateStatement(stmt, indent);
     }
+  }
+
+  // ===========================================================================
+  // Expression Generation (Phase 3.1)
+  // ===========================================================================
+
+  /**
+   * Generate C++ code for an expression.
+   * Returns the C++ expression as a string.
+   */
+  protected generateExpression(expr: Expression): string {
+    switch (expr.kind) {
+      case "LiteralExpression":
+        return this.generateLiteralExpression(expr);
+      case "VariableExpression":
+        return this.generateVariableExpression(expr);
+      case "BinaryExpression":
+        return this.generateBinaryExpression(expr);
+      case "UnaryExpression":
+        return this.generateUnaryExpression(expr);
+      case "ParenthesizedExpression":
+        return `(${this.generateExpression(expr.expression)})`;
+      case "FunctionCallExpression":
+        return this.generateFunctionCallExpression(expr);
+      case "RefExpression":
+        return `REF(${this.generateExpression(expr.operand)})`;
+      case "DrefExpression":
+        return `${this.generateExpression(expr.operand)}.deref()`;
+      case "NewExpression": {
+        const cppType = this.typeCodeGen.mapTypeToCpp(expr.allocationType.name);
+        if (expr.arraySize) {
+          return `strucpp::iec_new_array<${cppType}>(${this.generateExpression(expr.arraySize)})`;
+        }
+        return `strucpp::iec_new<${cppType}>()`;
+      }
+    }
+  }
+
+  /**
+   * Generate C++ for a literal expression.
+   */
+  private generateLiteralExpression(expr: LiteralExpression): string {
+    switch (expr.literalType) {
+      case "BOOL":
+        return expr.value === true || expr.value === "TRUE" || expr.rawValue?.toUpperCase() === "TRUE"
+          ? "true"
+          : "false";
+      case "INT": {
+        return String(expr.value);
+      }
+      case "REAL": {
+        const str = String(expr.value);
+        // Ensure real literals have a decimal point
+        return str.includes(".") ? str : str + ".0";
+      }
+      case "STRING":
+        return `"${expr.rawValue}"`;
+      case "WSTRING":
+        return `L"${expr.rawValue}"`;
+      case "TIME":
+      case "DATE":
+      case "TIME_OF_DAY":
+      case "DATE_AND_TIME":
+        return String(expr.value);
+      case "NULL":
+        return "IEC_NULL";
+      default:
+        return String(expr.value);
+    }
+  }
+
+  /**
+   * Generate C++ for a variable expression.
+   */
+  private generateVariableExpression(expr: VariableExpression): string {
+    // In function bodies, references to the function name redirect to the result variable
+    let result =
+      this.currentFunctionName &&
+      expr.name.toUpperCase() === this.currentFunctionName.toUpperCase()
+        ? `${this.currentFunctionName}_result`
+        : expr.name;
+
+    // Subscripts (array access)
+    // 2D+ arrays use operator() syntax: arr(i, j) — 1D uses operator[]: arr[i]
+    if (expr.subscripts.length > 1) {
+      const args = expr.subscripts.map((sub) => this.generateExpression(sub));
+      result += `(${args.join(", ")})`;
+    } else {
+      for (const sub of expr.subscripts) {
+        result += `[${this.generateExpression(sub)}]`;
+      }
+    }
+
+    // Field access (struct members)
+    for (const field of expr.fieldAccess) {
+      result += `.${field}`;
+    }
+
+    // Dereference (^ operator → .deref())
+    if (expr.isDereference) {
+      result += ".deref()";
+    }
+
+    return result;
+  }
+
+  /**
+   * Operator mapping from ST to C++.
+   */
+  private static readonly BINARY_OP_MAP: Record<string, string> = {
+    "+": "+",
+    "-": "-",
+    "*": "*",
+    "/": "/",
+    "MOD": "%",
+    "AND": "&&",
+    "OR": "||",
+    "XOR": "^",
+    "=": "==",
+    "<>": "!=",
+    "<": "<",
+    ">": ">",
+    "<=": "<=",
+    ">=": ">=",
+  };
+
+  /**
+   * Generate C++ for a binary expression.
+   */
+  private generateBinaryExpression(expr: BinaryExpression): string {
+    const left = this.generateExpression(expr.left);
+    const right = this.generateExpression(expr.right);
+
+    // Power operator needs special handling
+    if (expr.operator === "**") {
+      return `std::pow(static_cast<double>(${left}), static_cast<double>(${right}))`;
+    }
+
+    const cppOp = CodeGenerator.BINARY_OP_MAP[expr.operator] ?? expr.operator;
+    return `${left} ${cppOp} ${right}`;
+  }
+
+  /**
+   * Generate C++ for a unary expression.
+   */
+  private generateUnaryExpression(expr: UnaryExpression): string {
+    const operand = this.generateExpression(expr.operand);
+
+    switch (expr.operator) {
+      case "NOT":
+        return `!${operand}`;
+      case "-":
+        return `-${operand}`;
+      case "+":
+        return `+${operand}`;
+    }
+  }
+
+  /**
+   * Generate C++ for a function call expression.
+   * Basic support - full function call codegen is Phase 4.
+   */
+  private generateFunctionCallExpression(expr: FunctionCallExpression): string {
+    const args = expr.arguments.map((arg) => {
+      return this.generateExpression(arg.value);
+    });
+    return `${expr.functionName}(${args.join(", ")})`;
   }
 
   // ===========================================================================
