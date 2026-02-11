@@ -203,7 +203,11 @@ function findRuntimeIncludeDir(cxxFlags: string): string | null {
 
   // Relative to binary (pkg binary may be in dist/bin/, dist/, or project root)
   const execDir = dirname(process.execPath);
-  for (const base of [execDir, resolve(execDir, ".."), resolve(execDir, "..", "..")]) {
+  for (const base of [
+    execDir,
+    resolve(execDir, ".."),
+    resolve(execDir, "..", ".."),
+  ]) {
     candidates.push(resolve(base, "runtime", "include"));
     candidates.push(resolve(base, "src", "runtime", "include"));
   }
@@ -365,19 +369,26 @@ function main(): void {
     // Step 1: Compile isocline.c as C (uses execFileSync to avoid shell injection)
     console.log("Compiling isocline...");
     try {
-      execFileSync(options.cc, [
-        "-c",
-        "-std=c11",
-        `-I${replDir}`,
-        resolve(replDir, "isocline.c"),
-        "-o", isoclineObjPath,
-      ], { stdio: "inherit" });
+      execFileSync(
+        options.cc,
+        [
+          "-c",
+          "-std=c11",
+          `-I${replDir}`,
+          resolve(replDir, "isocline.c"),
+          "-o",
+          isoclineObjPath,
+        ],
+        { stdio: "inherit" },
+      );
     } catch (err: unknown) {
       const exitCode = (err as { status?: number }).status;
       console.error(
         `Error: C compilation of isocline failed (exit code ${exitCode ?? "unknown"}).`,
       );
-      console.error("Ensure a C compiler is available or specify one with --cc.");
+      console.error(
+        "Ensure a C compiler is available or specify one with --cc.",
+      );
       process.exit(1);
     }
 
@@ -391,7 +402,8 @@ function main(): void {
       mainCppPath,
       outputPath,
       isoclineObjPath,
-      "-o", binaryPath,
+      "-o",
+      binaryPath,
     ];
 
     console.log(`Building binary: ${basename(binaryPath)}`);

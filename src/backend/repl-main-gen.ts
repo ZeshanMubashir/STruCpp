@@ -15,12 +15,18 @@ import { getProjectNamespace } from "../project-model.js";
  * Escape ST source for embedding in a C++ raw string literal with delimiter STRUCPP_SRC.
  * If the source contains the closing sequence `)STRUCPP_SRC"`, replace it with a safe variant.
  */
-function escapeRawStringLiteral(source: string, delimiter: string = "STRUCPP_SRC"): string {
+function escapeRawStringLiteral(
+  source: string,
+  delimiter: string = "STRUCPP_SRC",
+): string {
   // The closing delimiter is )DELIMITER" — if this appears in the source, mangle it
   let result = source;
   const closingSeq = `)${delimiter}"`;
   if (result.includes(closingSeq)) {
-    result = result.replace(new RegExp(`\\)${delimiter}"`, "g"), `)${delimiter}_`);
+    result = result.replace(
+      new RegExp(`\\)${delimiter}"`, "g"),
+      `)${delimiter}_`,
+    );
   }
   return result;
 }
@@ -122,7 +128,9 @@ export function generateReplMain(
   // Embed ST source as raw string literal
   if (options.stSource) {
     const safeSource = escapeRawStringLiteral(options.stSource);
-    lines.push(`static const char* g_st_source = R"STRUCPP_SRC(${safeSource})STRUCPP_SRC";`);
+    lines.push(
+      `static const char* g_st_source = R"STRUCPP_SRC(${safeSource})STRUCPP_SRC";`,
+    );
   } else {
     lines.push("static const char* g_st_source = nullptr;");
   }
@@ -134,7 +142,9 @@ export function generateReplMain(
     const cppPart = options.cppCode ?? "";
     const combined = headerPart + (headerPart && cppPart ? "\n" : "") + cppPart;
     const safeCpp = escapeRawStringLiteral(combined, "STRUCPP_CPP");
-    lines.push(`static const char* g_cpp_source = R"STRUCPP_CPP(${safeCpp})STRUCPP_CPP";`);
+    lines.push(
+      `static const char* g_cpp_source = R"STRUCPP_CPP(${safeCpp})STRUCPP_CPP";`,
+    );
   } else {
     lines.push("static const char* g_cpp_source = nullptr;");
   }
@@ -146,27 +156,35 @@ export function generateReplMain(
     : 0;
   const offset = headerLineCount > 0 && options.cppCode ? headerLineCount : 0;
 
-  const mergedEntries: Array<[number, { cppStartLine: number; cppEndLine: number }]> = [];
+  const mergedEntries: Array<
+    [number, { cppStartLine: number; cppEndLine: number }]
+  > = [];
 
   // Add header line map entries (no offset needed)
   if (options.headerLineMap) {
     for (const [stLine, entry] of options.headerLineMap) {
-      mergedEntries.push([stLine, { cppStartLine: entry.cppStartLine, cppEndLine: entry.cppEndLine }]);
+      mergedEntries.push([
+        stLine,
+        { cppStartLine: entry.cppStartLine, cppEndLine: entry.cppEndLine },
+      ]);
     }
   }
 
   // Add implementation line map entries (with offset)
   if (options.lineMap) {
     for (const [stLine, entry] of options.lineMap) {
-      const existing = mergedEntries.find(e => e[0] === stLine);
+      const existing = mergedEntries.find((e) => e[0] === stLine);
       if (existing) {
         // ST line appears in both maps — extend the range
         existing[1].cppEndLine = entry.cppEndLine + offset;
       } else {
-        mergedEntries.push([stLine, {
-          cppStartLine: entry.cppStartLine + offset,
-          cppEndLine: entry.cppEndLine + offset,
-        }]);
+        mergedEntries.push([
+          stLine,
+          {
+            cppStartLine: entry.cppStartLine + offset,
+            cppEndLine: entry.cppEndLine + offset,
+          },
+        ]);
       }
     }
   }
@@ -177,7 +195,9 @@ export function generateReplMain(
   if (mergedEntries.length > 0) {
     lines.push("static STLineMap g_line_map[] = {");
     for (const [stLine, entry] of mergedEntries) {
-      lines.push(`    {${stLine}, ${entry.cppStartLine}, ${entry.cppEndLine}},`);
+      lines.push(
+        `    {${stLine}, ${entry.cppStartLine}, ${entry.cppEndLine}},`,
+      );
     }
     lines.push("};");
     lines.push(`static size_t g_line_map_count = ${mergedEntries.length};`);
@@ -236,7 +256,10 @@ function emitVarDescriptors(lines: string[], programs: ProgramInfo[]): void {
 /**
  * Emit ProgramDescriptor array and main() function.
  */
-function emitProgramDescriptorsAndMain(lines: string[], programs: ProgramInfo[]): void {
+function emitProgramDescriptorsAndMain(
+  lines: string[],
+  programs: ProgramInfo[],
+): void {
   lines.push(`static ProgramDescriptor programs[] = {`);
   for (const prog of programs) {
     lines.push(

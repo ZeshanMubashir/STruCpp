@@ -442,12 +442,25 @@ export class SemanticAnalyzer {
       }
       // Recurse into control flow statements
       if (stmt.kind === "IfStatement") {
-        const ifStmt = stmt as { thenStatements: Statement[]; elsifClauses: Array<{ statements: Statement[] }>; elseStatements: Statement[] };
-        this.validateStatementsForConstantAssignment(ifStmt.thenStatements, scope);
+        const ifStmt = stmt as {
+          thenStatements: Statement[];
+          elsifClauses: Array<{ statements: Statement[] }>;
+          elseStatements: Statement[];
+        };
+        this.validateStatementsForConstantAssignment(
+          ifStmt.thenStatements,
+          scope,
+        );
         for (const clause of ifStmt.elsifClauses) {
-          this.validateStatementsForConstantAssignment(clause.statements, scope);
+          this.validateStatementsForConstantAssignment(
+            clause.statements,
+            scope,
+          );
         }
-        this.validateStatementsForConstantAssignment(ifStmt.elseStatements, scope);
+        this.validateStatementsForConstantAssignment(
+          ifStmt.elseStatements,
+          scope,
+        );
       }
       if (stmt.kind === "ForStatement") {
         const forStmt = stmt as { body: Statement[] };
@@ -462,11 +475,17 @@ export class SemanticAnalyzer {
         this.validateStatementsForConstantAssignment(repeatStmt.body, scope);
       }
       if (stmt.kind === "CaseStatement") {
-        const caseStmt = stmt as { cases: Array<{ statements: Statement[] }>; elseStatements: Statement[] };
+        const caseStmt = stmt as {
+          cases: Array<{ statements: Statement[] }>;
+          elseStatements: Statement[];
+        };
         for (const c of caseStmt.cases) {
           this.validateStatementsForConstantAssignment(c.statements, scope);
         }
-        this.validateStatementsForConstantAssignment(caseStmt.elseStatements, scope);
+        this.validateStatementsForConstantAssignment(
+          caseStmt.elseStatements,
+          scope,
+        );
       }
     }
   }

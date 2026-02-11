@@ -236,7 +236,7 @@ export class CodeGenerator {
     this.currentHeaderLine = 1;
     this.indentLevel = 0;
     this.locatedVars = [];
-    this.ast = ast;  // Store AST for looking up program bodies
+    this.ast = ast; // Store AST for looking up program bodies
 
     // Generate header
     this.generateHeader(ast);
@@ -647,7 +647,7 @@ export class CodeGenerator {
 
     // Look up AST program for source spans
     const astProg = this.ast?.programs.find(
-      p => p.name.toUpperCase() === prog.name.toUpperCase()
+      (p) => p.name.toUpperCase() === prog.name.toUpperCase(),
     );
 
     const classLine = this.currentHeaderLine;
@@ -732,7 +732,9 @@ export class CodeGenerator {
     if (retainVars.length > 0) {
       this.emitHeader("");
       this.emitHeader("    // Retain variable support");
-      this.emitHeader(`    static const RetainVarInfo __retain_vars[${retainVars.length}];`);
+      this.emitHeader(
+        `    static const RetainVarInfo __retain_vars[${retainVars.length}];`,
+      );
       this.emitHeader(
         `    const RetainVarInfo* getRetainVars() const override { return __retain_vars; }`,
       );
@@ -862,7 +864,9 @@ export class CodeGenerator {
       this.emitHeader("    // VAR_GLOBAL variables");
       for (const gvar of config.globalVars) {
         const constQualifier = gvar.isConstant ? "const " : "";
-        this.emitHeader(`    ${constQualifier}IEC_${gvar.typeName} ${gvar.name};`);
+        this.emitHeader(
+          `    ${constQualifier}IEC_${gvar.typeName} ${gvar.name};`,
+        );
       }
       this.emitHeader("");
     }
@@ -1138,11 +1142,15 @@ export class CodeGenerator {
         this.generateExternalCodePragma(stmt, indent);
         break;
       case "DeleteStatement":
-        this.emit(`${indent}strucpp::iec_delete(${this.generateExpression(stmt.pointer)});`);
+        this.emit(
+          `${indent}strucpp::iec_delete(${this.generateExpression(stmt.pointer)});`,
+        );
         break;
       default: {
         const _exhaustive: never = stmt;
-        throw new Error(`Unhandled statement kind: ${(_exhaustive as Statement).kind}`);
+        throw new Error(
+          `Unhandled statement kind: ${(_exhaustive as Statement).kind}`,
+        );
       }
     }
     if (!isCompound) {
@@ -1213,7 +1221,9 @@ export class CodeGenerator {
 
     for (const elsif of stmt.elsifClauses) {
       const elsifLine = this.currentLine;
-      this.emit(`${indent}} else if (${this.generateExpression(elsif.condition)}) {`);
+      this.emit(
+        `${indent}} else if (${this.generateExpression(elsif.condition)}) {`,
+      );
       this.recordLineMapping(elsif.sourceSpan.startLine, elsifLine);
       this.generateStatements(elsif.statements, indent + this.options.indent);
     }
@@ -1231,7 +1241,10 @@ export class CodeGenerator {
         const lastThen = stmt.thenStatements[stmt.thenStatements.length - 1]!;
         this.recordLineMapping(lastThen.sourceSpan.endLine + 1, elseLine);
       }
-      this.generateStatements(stmt.elseStatements, indent + this.options.indent);
+      this.generateStatements(
+        stmt.elseStatements,
+        indent + this.options.indent,
+      );
     }
 
     const closingLine = this.currentLine;
@@ -1263,10 +1276,14 @@ export class CodeGenerator {
             }
           } else {
             // Fallback: emit as comment with expression
-            this.emit(`${innerIndent}case ${this.generateExpression(label.start)}: // range to ${this.generateExpression(label.end)}`);
+            this.emit(
+              `${innerIndent}case ${this.generateExpression(label.start)}: // range to ${this.generateExpression(label.end)}`,
+            );
           }
         } else {
-          this.emit(`${innerIndent}case ${this.generateExpression(label.start)}:`);
+          this.emit(
+            `${innerIndent}case ${this.generateExpression(label.start)}:`,
+          );
         }
       }
       this.recordLineMapping(caseElement.sourceSpan.startLine, caseLabelLine);
@@ -1300,13 +1317,19 @@ export class CodeGenerator {
       // Determine direction from step when it's a literal
       const stepVal = this.evaluateLiteralInt(stmt.step);
       if (stepVal !== undefined && stepVal < 0) {
-        this.emit(`${indent}for (${varName} = ${start}; ${varName} >= ${end}; ${varName} += ${stepExpr}) {`);
+        this.emit(
+          `${indent}for (${varName} = ${start}; ${varName} >= ${end}; ${varName} += ${stepExpr}) {`,
+        );
       } else {
-        this.emit(`${indent}for (${varName} = ${start}; ${varName} <= ${end}; ${varName} += ${stepExpr}) {`);
+        this.emit(
+          `${indent}for (${varName} = ${start}; ${varName} <= ${end}; ${varName} += ${stepExpr}) {`,
+        );
       }
     } else {
       // Default step is 1, ascending
-      this.emit(`${indent}for (${varName} = ${start}; ${varName} <= ${end}; ${varName}++) {`);
+      this.emit(
+        `${indent}for (${varName} = ${start}; ${varName} <= ${end}; ${varName}++) {`,
+      );
     }
     this.recordLineMapping(stmt.sourceSpan.startLine, forLine);
 
@@ -1340,7 +1363,9 @@ export class CodeGenerator {
     this.recordLineMapping(stmt.sourceSpan.startLine, doLine);
     this.generateStatements(stmt.body, indent + this.options.indent);
     const untilLine = this.currentLine;
-    this.emit(`${indent}} while (!(${this.generateExpression(stmt.condition)}));`);
+    this.emit(
+      `${indent}} while (!(${this.generateExpression(stmt.condition)}));`,
+    );
     this.recordLineMapping(stmt.sourceSpan.endLine, untilLine);
   }
 
@@ -1381,7 +1406,10 @@ export class CodeGenerator {
   /**
    * Generate code for a list of statements.
    */
-  protected generateStatements(stmts: Statement[], indent: string = "    "): void {
+  protected generateStatements(
+    stmts: Statement[],
+    indent: string = "    ",
+  ): void {
     for (const stmt of stmts) {
       this.generateStatement(stmt, indent);
     }
@@ -1429,7 +1457,9 @@ export class CodeGenerator {
   private generateLiteralExpression(expr: LiteralExpression): string {
     switch (expr.literalType) {
       case "BOOL":
-        return expr.value === true || expr.value === "TRUE" || expr.rawValue?.toUpperCase() === "TRUE"
+        return expr.value === true ||
+          expr.value === "TRUE" ||
+          expr.rawValue?.toUpperCase() === "TRUE"
           ? "true"
           : "false";
       case "INT": {
@@ -1499,10 +1529,10 @@ export class CodeGenerator {
     "-": "-",
     "*": "*",
     "/": "/",
-    "MOD": "%",
-    "AND": "&&",
-    "OR": "||",
-    "XOR": "^",
+    MOD: "%",
+    AND: "&&",
+    OR: "||",
+    XOR: "^",
     "=": "==",
     "<>": "!=",
     "<": "<",
@@ -1845,7 +1875,10 @@ export class CodeGenerator {
     }
   }
 
-  private recordHeaderLineMapping(stLine: number, headerStartLine: number): void {
+  private recordHeaderLineMapping(
+    stLine: number,
+    headerStartLine: number,
+  ): void {
     const lastEmittedHeaderLine = this.currentHeaderLine - 1;
     const existing = this.headerLineMap.get(stLine);
     if (existing !== undefined) {

@@ -869,7 +869,10 @@ export class ASTBuilder {
    * For VLA: ARRAY[*] OF INT → name "__VLA_1D_INT"
    * For fixed: ARRAY[1..10] OF INT → name "__INLINE_ARRAY_INT"
    */
-  private buildInlineArrayTypeReference(arrayTypeNode: CstNode, parentNode: CstNode): TypeReference {
+  private buildInlineArrayTypeReference(
+    arrayTypeNode: CstNode,
+    parentNode: CstNode,
+  ): TypeReference {
     const arrayChildren = arrayTypeNode.children as CstChildren;
 
     // Get dimensions to check for variable-length
@@ -953,9 +956,7 @@ export class ASTBuilder {
       );
     }
     if (children.deleteStatement) {
-      return this.buildDeleteStatement(
-        getFirstNode(children.deleteStatement)!,
-      );
+      return this.buildDeleteStatement(getFirstNode(children.deleteStatement)!);
     }
 
     return undefined;
@@ -1025,10 +1026,13 @@ export class ASTBuilder {
     const elsifTokens = getAllTokens(children.ELSIF);
     const elsifClauses: ElsifClause[] = [];
     for (let i = 0; i < elsifTokens.length; i++) {
-      const elsifCondition = (expressions[i + 1]
-        ? this.buildExpression(expressions[i + 1]!)
-        : undefined) ?? this.createDummyLiteral(node);
-      const elsifStatements = this.extractStatementsFromList(statementLists[i + 1]);
+      const elsifCondition =
+        (expressions[i + 1]
+          ? this.buildExpression(expressions[i + 1]!)
+          : undefined) ?? this.createDummyLiteral(node);
+      const elsifStatements = this.extractStatementsFromList(
+        statementLists[i + 1],
+      );
       elsifClauses.push({
         kind: "ElsifClause",
         sourceSpan: tokenToSourceSpan(elsifTokens[i]!),
@@ -1642,7 +1646,9 @@ export class ASTBuilder {
 
     // Check for parenthesized expression
     if (children.expression) {
-      const innerExpr = this.buildExpression(getFirstNode(children.expression)!);
+      const innerExpr = this.buildExpression(
+        getFirstNode(children.expression)!,
+      );
       if (innerExpr) {
         return {
           kind: "ParenthesizedExpression",
