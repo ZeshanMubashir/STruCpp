@@ -1,4 +1,4 @@
-# Phase 8.5: Advanced Testing Features
+# Phase 8.6: Advanced Testing Features
 
 **Status**: PENDING
 
@@ -6,7 +6,7 @@
 
 **Prerequisites**: Phase 8.2 (Assert Library)
 
-**Goal**: Add CI/CD output formats (JUnit XML, TAP), verbose mode, test timing, and lay groundwork for future coverage instrumentation and mock generation
+**Goal**: Add CI/CD output formats (JUnit XML, TAP), verbose mode, test timing, and lay groundwork for future coverage instrumentation
 
 ## Overview
 

@@ -94,8 +94,9 @@ Vendor-agnostic, offline unit testing framework for IEC 61131-3 Structured Text 
 - [Phase 8.1: Core Test Infrastructure](phase-8.1-core-test-infrastructure.md) - TEST/END_TEST blocks, basic asserts, CLI `--test` flag, program testing
 - [Phase 8.2: Complete Assert Library and Test Organization](phase-8.2-assert-library.md) - Full assert set, SETUP/TEARDOWN, multiple test files, messages
 - [Phase 8.3: Function and Function Block Testing](phase-8.3-function-fb-testing.md) - Direct function calls, FB instantiation, method invocation (requires Phase 4+5)
-- [Phase 8.4: STruC++ Self-Validation Suite](phase-8.4-self-validation-suite.md) - ST test files for compiler validation, Vitest integration, CI pipeline
-- [Phase 8.5: Advanced Testing Features](phase-8.5-advanced-testing.md) - JUnit XML/TAP output, verbose mode, test filtering, timing
+- [Phase 8.4: Mocking Framework](phase-8.4-mocking-framework.md) - Per-TEST MOCK declarations for FBs and Functions, mock verification, selective mocking (requires Phase 8.3)
+- [Phase 8.5: STruC++ Self-Validation Suite](phase-8.5-self-validation-suite.md) - ST test files for compiler validation, Vitest integration, CI pipeline
+- [Phase 8.6: Advanced Testing Features](phase-8.6-advanced-testing.md) - JUnit XML/TAP output, verbose mode, test filtering, timing
 
 **Note**: STruC++ focuses exclusively on Structured Text (ST). Other IEC 61131-3 languages (IL, SFC, LD, FBD) are translated to ST by OpenPLC Editor before compilation.
 

@@ -1,10 +1,10 @@
-# Phase 8.4: STruC++ Self-Validation Suite
+# Phase 8.5: STruC++ Self-Validation Suite
 
 **Status**: PENDING
 
 **Duration**: 2-3 weeks
 
-**Prerequisites**: Phase 8.2 (Assert Library), preferably Phase 8.3 (Function/FB Testing)
+**Prerequisites**: Phase 8.2 (Assert Library), preferably Phase 8.3 (Function/FB Testing) and Phase 8.4 (Mocking Framework)
 
 **Goal**: Build a comprehensive suite of ST source + test file pairs that validate STruC++ compiler correctness end-to-end, integrate with Vitest for CI, and establish the pattern for ongoing compiler validation
 

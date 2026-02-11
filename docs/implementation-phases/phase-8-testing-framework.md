@@ -115,7 +115,7 @@ strucpp counter.st --test test_basic.st test_edge_cases.st
 # Verbose output
 strucpp counter.st --test test_counter.st --test-verbose
 
-# JUnit XML output for CI (Phase 8.5)
+# JUnit XML output for CI (Phase 8.6)
 strucpp counter.st --test test_counter.st --test-output junit
 ```
 
@@ -152,8 +152,9 @@ This phase is divided into sub-phases that can be implemented incrementally:
 - [Phase 8.1: Core Test Infrastructure](phase-8.1-core-test-infrastructure.md) - Parser extensions, basic asserts, CLI integration, program testing
 - [Phase 8.2: Complete Assert Library and Test Organization](phase-8.2-assert-library.md) - Full assert set, SETUP/TEARDOWN, multiple test files, messages
 - [Phase 8.3: Function and Function Block Testing](phase-8.3-function-fb-testing.md) - Direct function calls, FB instantiation, method invocation, interface testing
-- [Phase 8.4: STruC++ Self-Validation Suite](phase-8.4-self-validation-suite.md) - ST test files for compiler validation, Vitest integration, CI pipeline
-- [Phase 8.5: Advanced Testing Features](phase-8.5-advanced-testing.md) - JUnit XML output, coverage instrumentation, mock generation, test timing
+- [Phase 8.4: Mocking Framework](phase-8.4-mocking-framework.md) - Per-TEST MOCK declarations for FBs and Functions, mock verification, selective mocking
+- [Phase 8.5: STruC++ Self-Validation Suite](phase-8.5-self-validation-suite.md) - ST test files for compiler validation, Vitest integration, CI pipeline
+- [Phase 8.6: Advanced Testing Features](phase-8.6-advanced-testing.md) - JUnit XML/TAP output, verbose mode, test filtering, timing
 
 ## Prerequisites
 
@@ -161,7 +162,7 @@ This phase is divided into sub-phases that can be implemented incrementally:
 - **Phase 4** (Functions) - Required for Phase 8.3 function testing
 - **Phase 5** (Function Blocks) - Required for Phase 8.3 FB testing
 
-Phase 8.1 and 8.2 can begin immediately after Phase 3.6, using only PROGRAM testing. Phase 8.3 requires Phase 4+5 to be complete.
+Phase 8.1 and 8.2 can begin immediately after Phase 3.6, using only PROGRAM testing. Phase 8.3 requires Phase 4+5 to be complete. Phase 8.4 (Mocking) requires Phase 8.3 and Phase 5.1.
 
 ## Architecture
 
