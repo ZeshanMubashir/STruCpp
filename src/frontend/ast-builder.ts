@@ -1398,22 +1398,22 @@ export class ASTBuilder {
     // Collect all comparison operator tokens with their operators, sorted by position
     const opTokens: Array<{ offset: number; op: BinaryOperator }> = [];
     for (const tok of getAllTokens(children.Equal)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "=" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: "=" });
     }
     for (const tok of getAllTokens(children.NotEqual)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "<>" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: "<>" });
     }
     for (const tok of getAllTokens(children.Less)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "<" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: "<" });
     }
     for (const tok of getAllTokens(children.Greater)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: ">" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: ">" });
     }
     for (const tok of getAllTokens(children.LessEqual)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "<=" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: "<=" });
     }
     for (const tok of getAllTokens(children.GreaterEqual)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: ">=" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: ">=" });
     }
     opTokens.sort((a, b) => a.offset - b.offset);
 
@@ -1455,10 +1455,10 @@ export class ASTBuilder {
     // Collect all add/sub operator tokens, sorted by position
     const opTokens: Array<{ offset: number; op: BinaryOperator }> = [];
     for (const tok of getAllTokens(children.Plus)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "+" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: "+" });
     }
     for (const tok of getAllTokens(children.Minus)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "-" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: "-" });
     }
     opTokens.sort((a, b) => a.offset - b.offset);
 
@@ -1500,13 +1500,13 @@ export class ASTBuilder {
     // Collect all mul/div/mod operator tokens, sorted by position
     const opTokens: Array<{ offset: number; op: BinaryOperator }> = [];
     for (const tok of getAllTokens(children.Star)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "*" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: "*" });
     }
     for (const tok of getAllTokens(children.Slash)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "/" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: "/" });
     }
     for (const tok of getAllTokens(children.MOD)) {
-      opTokens.push({ offset: (tok as IToken).startOffset ?? 0, op: "MOD" });
+      opTokens.push({ offset: tok.startOffset ?? 0, op: "MOD" });
     }
     opTokens.sort((a, b) => a.offset - b.offset);
 

@@ -11,7 +11,6 @@ import type {
   VarBlock,
   VarDeclaration,
   Statement,
-  AssignmentStatement,
 } from "../frontend/ast.js";
 import type { CompileError } from "../types.js";
 import { SymbolTables } from "./symbol-table.js";
@@ -429,15 +428,14 @@ export class SemanticAnalyzer {
   ): void {
     for (const stmt of stmts) {
       if (stmt.kind === "AssignmentStatement") {
-        const assignment = stmt as AssignmentStatement;
-        if (assignment.target.kind === "VariableExpression") {
-          const varName = assignment.target.name;
+        if (stmt.target.kind === "VariableExpression") {
+          const varName = stmt.target.name;
           const symbol = scope.lookup(varName);
           if (symbol && symbol.kind === "constant") {
             this.addError(
               `Cannot assign to CONSTANT variable '${varName}'`,
-              assignment.sourceSpan.startLine,
-              assignment.sourceSpan.startCol,
+              stmt.sourceSpan.startLine,
+              stmt.sourceSpan.startCol,
             );
           }
         }
