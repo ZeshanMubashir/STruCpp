@@ -1863,7 +1863,10 @@ export class CodeGenerator {
     return result.map((v, i) => {
       if (v !== undefined) return v;
       const param = params[i]!;
-      if (param.blockType === "VAR_OUTPUT" || param.blockType === "VAR_IN_OUT") {
+      if (
+        param.blockType === "VAR_OUTPUT" ||
+        param.blockType === "VAR_IN_OUT"
+      ) {
         return this.emitOutputTempVar(param.typeName);
       }
       return param.defaultExpr ?? this.getDefaultValue(param.typeName);

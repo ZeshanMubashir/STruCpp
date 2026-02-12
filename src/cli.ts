@@ -344,7 +344,11 @@ function compileLibraryMode(options: CLIOptions): void {
 
   // Write manifest
   const manifestPath = resolve(outputDir, `${options.libName}.stlib.json`);
-  writeFileSync(manifestPath, JSON.stringify(result.manifest, null, 2), "utf-8");
+  writeFileSync(
+    manifestPath,
+    JSON.stringify(result.manifest, null, 2),
+    "utf-8",
+  );
   console.log(`Manifest written to ${manifestPath}`);
 
   // Write C++ files
