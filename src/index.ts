@@ -13,6 +13,12 @@ import { SymbolTables } from "./semantic/symbol-table.js";
 import { SemanticAnalyzer } from "./semantic/analyzer.js";
 import { CodeGenerator } from "./backend/codegen.js";
 import type { CompilationUnit } from "./frontend/ast.js";
+import { mergeCompilationUnits } from "./merge.js";
+import {
+  registerLibrarySymbols,
+  discoverLibraries,
+  LibraryManifestError,
+} from "./library/library-loader.js";
 
 /**
  * Default compilation options
@@ -81,7 +87,7 @@ export function compile(
     };
   }
 
-  // Phase 2: Build AST from CST
+  // Phase 2: Build AST from CST (supports multi-file via additionalSources)
   let ast: CompilationUnit;
   if (!parseResult.cst) {
     errors.push({
@@ -101,7 +107,48 @@ export function compile(
     };
   }
   try {
-    ast = buildAST(parseResult.cst);
+    const primaryAst = buildAST(parseResult.cst, mergedOptions.fileName ?? "main.st");
+    const units: CompilationUnit[] = [primaryAst];
+
+    // Parse additional source files
+    if (mergedOptions.additionalSources) {
+      for (const addlSource of mergedOptions.additionalSources) {
+        const addlParseResult = parseSource(addlSource.source);
+        if (addlParseResult.errors.length > 0) {
+          for (const err of addlParseResult.errors) {
+            const errObj = err as {
+              message?: string;
+              token?: { startLine?: number; startColumn?: number };
+            };
+            errors.push({
+              message: errObj.message ?? "Parse error",
+              line: errObj.token?.startLine ?? 0,
+              column: errObj.token?.startColumn ?? 0,
+              severity: "error",
+              file: addlSource.fileName,
+            });
+          }
+          continue;
+        }
+        if (addlParseResult.cst) {
+          units.push(buildAST(addlParseResult.cst, addlSource.fileName));
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      return {
+        success: false,
+        cppCode: "",
+        headerCode: "",
+        lineMap: new Map(),
+        headerLineMap: new Map(),
+        errors,
+        warnings,
+      };
+    }
+
+    ast = mergeCompilationUnits(units);
   } catch (e) {
     errors.push({
       message: `AST building failed: ${e instanceof Error ? e.message : String(e)}`,
@@ -151,9 +198,49 @@ export function compile(
     };
   }
 
-  // Phase 3.5: Semantic analysis (located variables, type checking, etc.)
+  // Phase 3.5: Library loading & Semantic analysis
+  // Discover libraries from libraryPaths and combine with explicit libraries
+  const allLibraries = [...(mergedOptions.libraries ?? [])];
+  if (mergedOptions.libraryPaths) {
+    for (const libPath of mergedOptions.libraryPaths) {
+      try {
+        allLibraries.push(...discoverLibraries(libPath));
+      } catch (e) {
+        errors.push({
+          message:
+            e instanceof LibraryManifestError
+              ? e.message
+              : `Library loading failed: ${e instanceof Error ? e.message : String(e)}`,
+          line: 0,
+          column: 0,
+          severity: "error",
+        });
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    return {
+      success: false,
+      cppCode: "",
+      headerCode: "",
+      lineMap: new Map(),
+      headerLineMap: new Map(),
+      errors,
+      warnings,
+    };
+  }
+
+  // If libraries are provided, pre-populate symbol tables with their symbols
+  let semanticSymbolTables: SymbolTables | undefined;
+  if (allLibraries.length > 0) {
+    semanticSymbolTables = new SymbolTables();
+    for (const manifest of allLibraries) {
+      registerLibrarySymbols(manifest, semanticSymbolTables);
+    }
+  }
   const analyzer = new SemanticAnalyzer();
-  const semanticResult = analyzer.analyze(ast);
+  const semanticResult = analyzer.analyze(ast, semanticSymbolTables);
   for (const err of semanticResult.errors) {
     errors.push({
       message: err.message,
@@ -184,15 +271,40 @@ export function compile(
   }
 
   // Phase 4: Generate C++ code
+  // Collect library headers for #include directives
+  const libraryHeaders: string[] = [];
+  for (const manifest of allLibraries) {
+    for (const header of manifest.headers) {
+      if (!libraryHeaders.includes(header)) {
+        libraryHeaders.push(header);
+      }
+    }
+  }
+
   const codegenSymbolTables = new SymbolTables();
   const codegen = new CodeGenerator(codegenSymbolTables, {
     sourceComments: mergedOptions.debug,
     lineDirectives: mergedOptions.lineMapping,
     headerFileName: mergedOptions.headerFileName ?? "generated.hpp",
+    libraryHeaders,
   });
   codegen.setProjectModel(projectModelResult.model);
 
   const codeResult = codegen.generate(ast);
+
+  // Collect codegen warnings
+  for (const warn of codeResult.warnings) {
+    const entry: CompileError = {
+      message: warn.message,
+      line: warn.line ?? 0,
+      column: warn.column ?? 0,
+      severity: "warning",
+    };
+    if (warn.file !== undefined) {
+      entry.file = warn.file;
+    }
+    warnings.push(entry);
+  }
 
   return {
     success: true,
@@ -272,3 +384,18 @@ export function getVersion(): string {
 
 // Re-export types
 export type { CompileOptions, CompileResult, CompileError } from "./types.js";
+
+// Re-export library system
+export { compileLibrary } from "./library/library-compiler.js";
+export {
+  loadLibraryManifest,
+  loadLibraryFromFile,
+  discoverLibraries,
+  registerLibrarySymbols,
+  LibraryManifestError,
+} from "./library/library-loader.js";
+export { getBuiltinStdlibManifest } from "./library/builtin-stdlib.js";
+export type {
+  LibraryManifest,
+  LibraryCompileResult,
+} from "./library/library-manifest.js";

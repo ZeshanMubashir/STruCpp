@@ -28,6 +28,21 @@ export interface CompileOptions {
 
   /** Header filename to use in #include directive (default: "generated.hpp") */
   headerFileName?: string;
+
+  /** Primary source file name for error reporting (default: "main.st") */
+  fileName?: string;
+
+  /** Additional ST source files to compile together */
+  additionalSources?: Array<{
+    source: string;
+    fileName: string;
+  }>;
+
+  /** Library search paths (like -I in gcc) - reserved for future file-based loading */
+  libraryPaths?: string[];
+
+  /** Pre-loaded library manifests to make available during compilation */
+  libraries?: import("./library/library-manifest.js").LibraryManifest[];
 }
 
 /**
