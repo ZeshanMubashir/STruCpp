@@ -21,7 +21,9 @@
 #include "iec_retain.hpp"
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
+#include <cstring>
 #include <type_traits>
 
 namespace strucpp {
@@ -425,11 +427,21 @@ inline T ROR(T in, IEC_INT n) noexcept {
 // =============================================================================
 
 /**
- * Generic type conversion
+ * Generic type conversion (IECVar → IECVar)
  */
 template<typename To, typename From>
-inline To CONVERT(From value) noexcept {
+inline auto CONVERT(From value) noexcept
+    -> std::enable_if_t<!std::is_arithmetic_v<From>, To> {
     return To(static_cast<typename To::value_type>(value.get()));
+}
+
+/**
+ * Generic type conversion (arithmetic → IECVar)
+ */
+template<typename To, typename From>
+inline auto CONVERT(From value) noexcept
+    -> std::enable_if_t<std::is_arithmetic_v<From>, To> {
+    return To(static_cast<typename To::value_type>(value));
 }
 
 // Specific conversion functions (aliases for clarity)
@@ -777,6 +789,62 @@ inline IEC_BOOL LT_CHAIN(T first, T second, Args... rest) noexcept {
     } else {
         return IEC_BOOL(true);
     }
+}
+
+// =============================================================================
+// TIME() - Absolute Runtime Time (CODESYS-compatible)
+// =============================================================================
+
+/**
+ * Returns the absolute runtime time (elapsed since runtime start).
+ * CODESYS-compatible: TIME() returns monotonic elapsed time.
+ * Uses std::chrono::steady_clock for monotonic timing.
+ */
+inline IEC_TIME TIME() {
+    static auto start = std::chrono::steady_clock::now();
+    auto now = std::chrono::steady_clock::now();
+    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now - start).count();
+    return IEC_TIME(static_cast<TIME_t>(ns));
+}
+
+// =============================================================================
+// CODESYS System Functions
+// =============================================================================
+
+/**
+ * ADR(variable) - Returns the memory address of a variable.
+ * CODESYS extension. Maps to address-of in C++, returning uintptr_t
+ * for compatibility with pointer arithmetic.
+ */
+template<typename T>
+inline IEC_ULINT ADR(T& var) {
+    return static_cast<IEC_ULINT>(reinterpret_cast<std::uintptr_t>(&var));
+}
+
+/**
+ * IEC_SIZEOF(var) - Returns the logical IEC type size in bytes.
+ * For IECVar<T> types, returns sizeof(T) (the underlying type),
+ * not sizeof(IECVar<T>) which includes the forcing wrapper overhead.
+ * Matches CODESYS SIZEOF behavior: SIZEOF(INT) = 2, SIZEOF(DINT) = 4, etc.
+ */
+template<typename T>
+inline IEC_UDINT IEC_SIZEOF(const IECVar<T>&) noexcept {
+    return static_cast<IEC_UDINT>(sizeof(T));
+}
+template<typename T>
+inline IEC_UDINT IEC_SIZEOF(const T&) noexcept {
+    return static_cast<IEC_UDINT>(sizeof(T));
+}
+
+/**
+ * MEMCPY(dest, src, n) - Copies n bytes from src to dest.
+ * CODESYS extension. Accepts uintptr_t addresses from ADR() for
+ * pointer arithmetic compatibility.
+ */
+inline IEC_ULINT MEMCPY(IEC_ULINT dest, IEC_ULINT src, std::size_t n) {
+    std::memcpy(reinterpret_cast<void*>(static_cast<std::uintptr_t>(dest)),
+                reinterpret_cast<const void*>(static_cast<std::uintptr_t>(src)), n);
+    return dest;
 }
 
 } // namespace strucpp

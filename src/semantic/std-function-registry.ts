@@ -67,7 +67,8 @@ export interface StdFunctionDescriptor {
     | "conversion"
     | "arithmetic"
     | "string"
-    | "time";
+    | "time"
+    | "system";
 }
 
 /**
@@ -193,6 +194,7 @@ export class StdFunctionRegistry {
     this.registerConversionFunctions();
     this.registerStringFunctions();
     this.registerTimeFunctions();
+    this.registerSystemFunctions();
   }
 
   // ---------------------------------------------------------------------------
@@ -737,6 +739,20 @@ export class StdFunctionRegistry {
   // ---------------------------------------------------------------------------
 
   private registerTimeFunctions(): void {
+    // TIME() - returns absolute runtime time (elapsed since start)
+    // CODESYS-compatible: TIME() with no args returns monotonic elapsed time
+    this.register({
+      name: "TIME",
+      cppName: "TIME",
+      returnConstraint: "specific",
+      returnMatchesFirstParam: false,
+      specificReturnType: "TIME",
+      params: [],
+      isVariadic: false,
+      isConversion: false,
+      category: "time",
+    });
+
     this.register({
       name: "TIME_FROM_MS",
       cppName: "TIME_FROM_MS",
@@ -811,6 +827,59 @@ export class StdFunctionRegistry {
       isVariadic: false,
       isConversion: false,
       category: "time",
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // System Functions (CODESYS extensions)
+  // ---------------------------------------------------------------------------
+
+  private registerSystemFunctions(): void {
+    // ADR(variable) -> ULINT (address of variable)
+    this.register({
+      name: "ADR",
+      cppName: "ADR",
+      returnConstraint: "specific",
+      returnMatchesFirstParam: false,
+      specificReturnType: "ULINT",
+      params: [
+        { name: "IN", constraint: "ANY", isByRef: true },
+      ],
+      isVariadic: false,
+      isConversion: false,
+      category: "system",
+    });
+
+    // SIZEOF(variable) -> UDINT (size in bytes)
+    this.register({
+      name: "SIZEOF",
+      cppName: "IEC_SIZEOF",
+      returnConstraint: "specific",
+      returnMatchesFirstParam: false,
+      specificReturnType: "UDINT",
+      params: [
+        { name: "IN", constraint: "ANY", isByRef: false },
+      ],
+      isVariadic: false,
+      isConversion: false,
+      category: "system",
+    });
+
+    // MEMCPY(dest, src, n) -> ULINT (CODESYS memcpy)
+    this.register({
+      name: "MEMCPY",
+      cppName: "MEMCPY",
+      returnConstraint: "specific",
+      returnMatchesFirstParam: false,
+      specificReturnType: "ULINT",
+      params: [
+        { name: "DEST", constraint: "ANY", isByRef: false },
+        { name: "SRC", constraint: "ANY", isByRef: false },
+        { name: "N", constraint: "ANY_INT", isByRef: false },
+      ],
+      isVariadic: false,
+      isConversion: false,
+      category: "system",
     });
   }
 }

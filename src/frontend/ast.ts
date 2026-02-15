@@ -112,6 +112,7 @@ export interface CompilationUnit extends ASTNode {
   programs: ProgramDeclaration[];
   functions: FunctionDeclaration[];
   functionBlocks: FunctionBlockDeclaration[];
+  interfaces: InterfaceDeclaration[];
   types: TypeDeclaration[];
   configurations: ConfigurationDeclaration[];
 }
@@ -147,8 +148,56 @@ export interface FunctionDeclaration extends ASTNode {
 export interface FunctionBlockDeclaration extends ASTNode {
   kind: "FunctionBlockDeclaration";
   name: string;
+  isAbstract: boolean;
+  isFinal: boolean;
+  extends?: string;
+  implements?: string[];
+  varBlocks: VarBlock[];
+  methods: MethodDeclaration[];
+  properties: PropertyDeclaration[];
+  body: Statement[];
+}
+
+/**
+ * Visibility modifier for OOP members
+ */
+export type Visibility = "PUBLIC" | "PRIVATE" | "PROTECTED";
+
+/**
+ * METHOD declaration within a Function Block
+ */
+export interface MethodDeclaration extends ASTNode {
+  kind: "MethodDeclaration";
+  name: string;
+  visibility: Visibility;
+  isAbstract: boolean;
+  isFinal: boolean;
+  isOverride: boolean;
+  returnType?: TypeReference;
   varBlocks: VarBlock[];
   body: Statement[];
+}
+
+/**
+ * INTERFACE declaration (top-level POU)
+ */
+export interface InterfaceDeclaration extends ASTNode {
+  kind: "InterfaceDeclaration";
+  name: string;
+  extends?: string[];
+  methods: MethodDeclaration[];
+}
+
+/**
+ * PROPERTY declaration within a Function Block
+ */
+export interface PropertyDeclaration extends ASTNode {
+  kind: "PropertyDeclaration";
+  name: string;
+  type: TypeReference;
+  visibility: Visibility;
+  getter?: Statement[];
+  setter?: Statement[];
 }
 
 // =============================================================================
@@ -165,7 +214,8 @@ export type VarBlockType =
   | "VAR_IN_OUT"
   | "VAR_EXTERNAL"
   | "VAR_GLOBAL"
-  | "VAR_TEMP";
+  | "VAR_TEMP"
+  | "VAR_INST";
 
 /**
  * Variable block (VAR, VAR_INPUT, etc.)
@@ -286,6 +336,7 @@ export interface TypeReference extends ASTNode {
   name: string;
   isReference: boolean; // true for REF_TO (for backwards compat)
   referenceKind: ReferenceKind; // more specific: "none", "ref_to", or "reference_to"
+  maxLength?: number; // For STRING(n) / WSTRING(n) parameterized length
 }
 
 // =============================================================================
@@ -468,7 +519,7 @@ export interface ReturnStatement extends ASTNode {
  */
 export interface FunctionCallStatement extends ASTNode {
   kind: "FunctionCallStatement";
-  call: FunctionCallExpression;
+  call: FunctionCallExpression | MethodCallExpression;
 }
 
 /**
@@ -505,6 +556,7 @@ export type Expression =
   | BinaryExpression
   | UnaryExpression
   | FunctionCallExpression
+  | MethodCallExpression
   | VariableExpression
   | LiteralExpression
   | ParenthesizedExpression
@@ -562,6 +614,17 @@ export interface UnaryExpression extends TypedNode {
 export interface FunctionCallExpression extends TypedNode {
   kind: "FunctionCallExpression";
   functionName: string;
+  arguments: Argument[];
+}
+
+/**
+ * Method call on an expression (for method chaining / fluent interface).
+ * e.g., fb.method1(args).method2(args) → nested MethodCallExpression nodes
+ */
+export interface MethodCallExpression extends TypedNode {
+  kind: "MethodCallExpression";
+  object: Expression; // The expression to call the method on
+  methodName: string;
   arguments: Argument[];
 }
 
@@ -671,6 +734,7 @@ export function createCompilationUnit(): CompilationUnit {
     programs: [],
     functions: [],
     functionBlocks: [],
+    interfaces: [],
     types: [],
     configurations: [],
   };
