@@ -53,9 +53,27 @@ export class TestCodeGenerator extends CodeGenerator {
   initFromAST(ast: CompilationUnit): void {
     for (const fb of ast.functionBlocks) {
       this.knownFBTypes.add(fb.name.toUpperCase());
+      for (const method of fb.methods) {
+        this.methodNameMap.set(
+          `${fb.name.toUpperCase()}.${method.name.toUpperCase()}`,
+          method.name,
+        );
+      }
+      for (const prop of fb.properties) {
+        this.propertyNameMap.set(
+          `${fb.name.toUpperCase()}.${prop.name.toUpperCase()}`,
+          prop.name,
+        );
+      }
     }
     for (const iface of ast.interfaces) {
       this.knownInterfaceTypes.add(iface.name.toUpperCase());
+      for (const method of iface.methods) {
+        this.methodNameMap.set(
+          `${iface.name.toUpperCase()}.${method.name.toUpperCase()}`,
+          method.name,
+        );
+      }
     }
     for (const td of ast.types) {
       this.knownStructTypes.add(td.name.toUpperCase());

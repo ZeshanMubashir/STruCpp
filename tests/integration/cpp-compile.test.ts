@@ -43,76 +43,8 @@ describeIfGpp('C++ Compilation Tests', () => {
     return compileWithGppHelper({ tempDir, pchPath, headerCode, cppCode, testName });
   }
 
-  it('should compile a simple program', () => {
-    const source = `
-      PROGRAM SimpleProgram
-        VAR x : INT; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'simple_program');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a program with multiple variables', () => {
-    const source = `
-      PROGRAM MultiVarProgram
-        VAR
-          intVar : INT;
-          realVar : REAL;
-          boolVar : BOOL;
-          dintVar : DINT;
-        END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'multi_var_program');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a program with VAR_INPUT and VAR_OUTPUT', () => {
-    const source = `
-      FUNCTION_BLOCK TestFB
-        VAR_INPUT
-          enable : BOOL;
-          setpoint : REAL;
-        END_VAR
-        VAR_OUTPUT
-          output : REAL;
-          done : BOOL;
-        END_VAR
-        VAR
-          internal : INT;
-        END_VAR
-      END_FUNCTION_BLOCK
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'fb_io_vars');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a function with return type', () => {
-    const source = `
-      FUNCTION AddInts : INT
-        VAR_INPUT
-          a : INT;
-          b : INT;
-        END_VAR
-        AddInts := a + b;
-      END_FUNCTION
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'function_add');
-    expect(cppResult.success).toBe(true);
-  });
+  // Basic program, variable, FB, and function compilation tests removed —
+  // covered by st-validation behavioral tests.
 
   it('should compile a configuration with resource and task', () => {
     const source = `
@@ -159,26 +91,7 @@ describeIfGpp('C++ Compilation Tests', () => {
     expect(cppResult.success).toBe(true);
   });
 
-  it('should compile multiple programs', () => {
-    const source = `
-      PROGRAM Program1
-        VAR x : INT; END_VAR
-      END_PROGRAM
-
-      PROGRAM Program2
-        VAR y : REAL; END_VAR
-      END_PROGRAM
-
-      PROGRAM Program3
-        VAR z : BOOL; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'multi_programs');
-    expect(cppResult.success).toBe(true);
-  });
+  // "multiple programs" test removed — covered by st-validation/programs/multi_program.
 
   it('should compile a program with time literal intervals', () => {
     const source = `
@@ -206,117 +119,8 @@ describeIfGpp('C++ Compilation Tests', () => {
     expect(cppResult.success).toBe(true);
   });
 
-  // User-Defined Data Types (Phase 2.2) Compilation Tests
-
-  it('should compile a simple struct type', () => {
-    const source = `
-      TYPE
-        Point : STRUCT
-          x : INT;
-          y : INT;
-        END_STRUCT;
-      END_TYPE
-
-      PROGRAM UseStruct
-        VAR p : Point; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'simple_struct');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a struct with multiple field types', () => {
-    const source = `
-      TYPE
-        SensorData : STRUCT
-          id : INT;
-          value : REAL;
-          active : BOOL;
-          timestamp : DINT;
-        END_STRUCT;
-      END_TYPE
-
-      PROGRAM UseSensorData
-        VAR sensor : SensorData; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'struct_multi_fields');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a simple enum type', () => {
-    const source = `
-      TYPE
-        TrafficLight : (RED, YELLOW, GREEN);
-      END_TYPE
-
-      PROGRAM UseEnum
-        VAR light : TrafficLight; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'simple_enum');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a typed enum with explicit values', () => {
-    const source = `
-      TYPE
-        MachineState : INT (IDLE := 0, RUNNING := 1, PAUSED := 2, STOPPED := 3);
-      END_TYPE
-
-      PROGRAM UseTypedEnum
-        VAR state : MachineState; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'typed_enum');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile an array type', () => {
-    const source = `
-      TYPE
-        IntArray : ARRAY[0..9] OF INT;
-      END_TYPE
-
-      PROGRAM UseArray
-        VAR arr : IntArray; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'array_type');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a multi-dimensional array type', () => {
-    const source = `
-      TYPE
-        Matrix : ARRAY[0..2, 0..2] OF REAL;
-      END_TYPE
-
-      PROGRAM UseMatrix
-        VAR m : Matrix; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'multi_dim_array');
-    expect(cppResult.success).toBe(true);
-  });
+  // UDT syntax-only tests (struct, enum, array, multi-dim) removed —
+  // covered by st-validation/data_types/ behavioral tests.
 
   it('should compile a non-zero-based array type (ARRAY[3..7])', () => {
     const source = `
@@ -427,35 +231,7 @@ describeIfGpp('C++ Compilation Tests', () => {
     expect(cppResult.success).toBe(true);
   });
 
-  it('should compile 2D array access in a loop', () => {
-    const source = `
-      TYPE
-        Matrix4x4 : ARRAY[1..4, 1..4] OF INT;
-      END_TYPE
-
-      PROGRAM Test2DLoop
-        VAR
-          m : Matrix4x4;
-          i : INT;
-          j : INT;
-        END_VAR
-        FOR i := 1 TO 4 DO
-          FOR j := 1 TO 4 DO
-            IF i = j THEN
-              m[i, j] := 1;
-            ELSE
-              m[i, j] := 0;
-            END_IF;
-          END_FOR;
-        END_FOR;
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'array_2d_loop');
-    expect(cppResult.success).toBe(true);
-  });
+  // "2D array access in a loop" removed — covered by st-validation/data_types/multidim_arrays.
 
   it('should compile mixed 1D bracket and 2D call-syntax access', () => {
     const source = `
@@ -490,118 +266,8 @@ describeIfGpp('C++ Compilation Tests', () => {
     expect(cppResult.success).toBe(true);
   });
 
-  it('should compile a subrange type', () => {
-    const source = `
-      TYPE
-        Percentage : INT(0..100);
-      END_TYPE
-
-      PROGRAM UseSubrange
-        VAR pct : Percentage; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'subrange_type');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a type alias to elementary type', () => {
-    const source = `
-      TYPE
-        MyInt : INT;
-        MyReal : REAL;
-      END_TYPE
-
-      PROGRAM UseTypeAlias
-        VAR
-          a : MyInt;
-          b : MyReal;
-        END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'type_alias');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile multiple user-defined types together', () => {
-    const source = `
-      TYPE
-        MyInt : INT;
-        TrafficLight : (RED, YELLOW, GREEN);
-        MachineState : INT (IDLE := 0, RUNNING := 1, STOPPED := 2);
-        Point : STRUCT
-          x : INT;
-          y : INT;
-        END_STRUCT;
-        IntArray : ARRAY[0..9] OF INT;
-        Percentage : INT(0..100);
-      END_TYPE
-
-      PROGRAM UseAllTypes
-        VAR
-          a : MyInt;
-          light : TrafficLight;
-          state : MachineState;
-          p : Point;
-          arr : IntArray;
-          pct : Percentage;
-        END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'all_user_types');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile user-defined types with elementary type variables', () => {
-    const source = `
-      TYPE
-        Point : STRUCT
-          x : INT;
-          y : INT;
-        END_STRUCT;
-      END_TYPE
-
-      PROGRAM MixedTypes
-        VAR
-          p : Point;
-          counter : INT;
-          enabled : BOOL;
-          value : REAL;
-        END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'mixed_types');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile TYPE block without program usage', () => {
-    const source = `
-      TYPE
-        Color : (RED, GREEN, BLUE);
-        Coordinate : STRUCT
-          x : REAL;
-          y : REAL;
-          z : REAL;
-        END_STRUCT;
-      END_TYPE
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'types_only');
-    expect(cppResult.success).toBe(true);
-  });
+  // Subrange, type alias, combined UDT, and types-only tests removed —
+  // covered by st-validation/data_types/ behavioral tests.
 
   // =============================================================================
   // Function VAR_OUTPUT Call-Site Tests (Phase 4.3)
@@ -634,62 +300,8 @@ describeIfGpp('C++ Compilation Tests', () => {
     expect(cppResult.success).toBe(true);
   });
 
-  // =============================================================================
-  // Nested Comments Tests (Phase 2.5)
-  // =============================================================================
-
-  it('should compile a program with nested block comments', () => {
-    const source = `
-      PROGRAM NestedComments
-        (* This is a comment with (* nested content *) inside *)
-        VAR x : INT; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'nested_comments');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a program with deeply nested comments', () => {
-    const source = `
-      PROGRAM DeeplyNested
-        (* Level 1
-           (* Level 2
-              (* Level 3 - deepest *)
-              Back to level 2
-           *)
-           Back to level 1
-        *)
-        VAR counter : DINT; END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'deeply_nested');
-    expect(cppResult.success).toBe(true);
-  });
-
-  it('should compile a program with mixed comment styles', () => {
-    const source = `
-      PROGRAM MixedComments
-        // Single-line comment
-        (* Block comment *)
-        (* Nested (* block *) comment *)
-        VAR
-          a : INT; // inline comment
-          b : REAL; (* inline block *)
-        END_VAR
-      END_PROGRAM
-    `;
-    const result = compile(source);
-    expect(result.success).toBe(true);
-
-    const cppResult = compileWithGpp(result.headerCode, result.cppCode, 'mixed_comments');
-    expect(cppResult.success).toBe(true);
-  });
+  // Nested comment syntax-only tests removed — comments are exercised
+  // by all st-validation tests. Error case kept below.
 
   it('should fail to compile with unclosed nested comment', () => {
     const source = `

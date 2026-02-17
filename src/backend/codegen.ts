@@ -247,10 +247,10 @@ export class CodeGenerator {
   private interfaceReturnMethod = false;
 
   /** Map of UPPER(typeName).UPPER(methodName) → declared method name for case normalization */
-  private methodNameMap: Map<string, string> = new Map();
+  protected methodNameMap: Map<string, string> = new Map();
 
   /** Map of UPPER(typeName).UPPER(propName) → declared property name for property access codegen */
-  private propertyNameMap: Map<string, string> = new Map();
+  protected propertyNameMap: Map<string, string> = new Map();
 
   /** Current FB name (set during generateFBImplementation for property resolution) */
   private currentFBName: string | undefined;

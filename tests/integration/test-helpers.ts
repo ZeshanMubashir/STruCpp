@@ -222,6 +222,8 @@ export interface RunE2ETestPipelineOptions {
   testFileName?: string;
   isTestBuild?: boolean;
   tempDirPrefix?: string;
+  /** Additional compile options passed to compile() */
+  compileOptions?: Record<string, unknown>;
 }
 
 /**
@@ -243,6 +245,7 @@ export function runE2ETestPipeline(
   const result = compile(sourceST, {
     headerFileName: 'generated.hpp',
     isTestBuild,
+    ...opts.compileOptions,
   });
   if (!result.success) {
     throw new Error(

@@ -31,6 +31,7 @@ import type {
   Expression,
 } from "../frontend/ast.js";
 import { TestCodeGenerator } from "./test-codegen.js";
+import { getStdFBLibraryManifest } from "../library/builtin-stdlib.js";
 
 /**
  * Information about a POU (Program Organization Unit) from compilation.
@@ -145,6 +146,17 @@ export function generateTestMain(
   // Initialize type sets from AST if provided
   if (options.ast) {
     testCodegen.initFromAST(options.ast);
+  }
+
+  // Register standard FB library types (TON, CTU, R_TRIG, etc.) so they
+  // are recognized as user-defined types, not given the IEC_ prefix
+  try {
+    const stdFBManifest = getStdFBLibraryManifest();
+    testCodegen.registerLibraryFBTypes(
+      stdFBManifest.functionBlocks.map((fb) => fb.name),
+    );
+  } catch {
+    // Standard FB manifest may not exist in minimal test setups
   }
 
   // Includes

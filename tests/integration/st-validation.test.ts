@@ -33,20 +33,43 @@ function findTestFiles(dir: string): string[] {
 }
 
 /**
+ * Load standard FB ST sources for tests that need them.
+ * Returns additionalSources array for the compile() options.
+ */
+function loadStdFBSources(): Array<{ source: string; fileName: string }> {
+  const stDir = path.resolve(__dirname, "../../src/stdlib/iec-standard-fb");
+  const fbFiles = ["edge_detection.st", "bistable.st", "counter.st", "timer.st"];
+  return fbFiles.map((fileName) => ({
+    source: fs.readFileSync(path.join(stDir, fileName), "utf-8"),
+    fileName,
+  }));
+}
+
+/**
  * Run a validation test pair: source.st + test_source.st.
  */
 function runValidation(
   sourcePath: string,
   testPath: string,
+  category: string,
 ): { stdout: string; exitCode: number } {
   const sourceST = fs.readFileSync(sourcePath, "utf-8");
   const testST = fs.readFileSync(testPath, "utf-8");
+
+  // Standard FB tests need the standard FB library compiled as additional sources
+  const compileOptions: Record<string, unknown> = {};
+  if (category === "standard_fbs") {
+    compileOptions.noStdFBLibrary = true;
+    compileOptions.additionalSources = loadStdFBSources();
+  }
+
   return runE2ETestPipeline({
     sourceST,
     testST,
     testFileName: path.basename(testPath),
     isTestBuild: true,
     tempDirPrefix: "strucpp-val-",
+    compileOptions,
   });
 }
 
@@ -72,7 +95,7 @@ describe.skipIf(!hasGpp)("ST Validation Suite", () => {
     it(
       `validates ${testName}`,
       () => {
-        const { stdout, exitCode } = runValidation(sourcePath, testPath);
+        const { stdout, exitCode } = runValidation(sourcePath, testPath, category);
         expect(stdout).not.toContain("[FAIL]");
         expect(exitCode).toBe(0);
       },
