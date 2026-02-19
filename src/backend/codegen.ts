@@ -2358,8 +2358,8 @@ export class CodeGenerator {
       }
       case "REAL": {
         const str = String(expr.value);
-        // Ensure real literals have a decimal point
-        return str.includes(".") ? str : str + ".0";
+        // Ensure real literals have a decimal point (but not for scientific notation)
+        return str.includes(".") || /[eE]/.test(str) ? str : str + ".0";
       }
       case "STRING": {
         // rawValue includes surrounding single quotes: 'hello' → strip them

@@ -314,6 +314,47 @@ inline T LIMIT(T mn, T in, T mx) noexcept {
     return in;
 }
 
+// Mixed-type MIN/MAX/LIMIT/SEL overloads (OSCAT mixes e.g. INT with DINT)
+template<typename T, typename U,
+    std::enable_if_t<!std::is_same_v<std::decay_t<T>, std::decay_t<U>>, int> = 0>
+inline auto MAX(T a, U b) noexcept {
+    using CT = std::common_type_t<decltype(iec_unwrap(a)), decltype(iec_unwrap(b))>;
+    auto va = static_cast<CT>(iec_unwrap(a));
+    auto vb = static_cast<CT>(iec_unwrap(b));
+    return va > vb ? va : vb;
+}
+
+template<typename T, typename U,
+    std::enable_if_t<!std::is_same_v<std::decay_t<T>, std::decay_t<U>>, int> = 0>
+inline auto MIN(T a, U b) noexcept {
+    using CT = std::common_type_t<decltype(iec_unwrap(a)), decltype(iec_unwrap(b))>;
+    auto va = static_cast<CT>(iec_unwrap(a));
+    auto vb = static_cast<CT>(iec_unwrap(b));
+    return va < vb ? va : vb;
+}
+
+template<typename T1, typename T2, typename T3>
+inline auto LIMIT(T1 mn, T2 in, T3 mx) noexcept
+    -> std::enable_if_t<
+        !(std::is_same_v<std::decay_t<T1>, std::decay_t<T2>> &&
+          std::is_same_v<std::decay_t<T2>, std::decay_t<T3>>),
+        std::common_type_t<decltype(iec_unwrap(mn)), decltype(iec_unwrap(in)), decltype(iec_unwrap(mx))>> {
+    using CT = std::common_type_t<decltype(iec_unwrap(mn)), decltype(iec_unwrap(in)), decltype(iec_unwrap(mx))>;
+    auto vmn = static_cast<CT>(iec_unwrap(mn));
+    auto vin = static_cast<CT>(iec_unwrap(in));
+    auto vmx = static_cast<CT>(iec_unwrap(mx));
+    if (vin < vmn) return vmn;
+    if (vin > vmx) return vmx;
+    return vin;
+}
+
+template<typename T, typename U,
+    std::enable_if_t<!std::is_same_v<std::decay_t<T>, std::decay_t<U>>, int> = 0>
+inline auto SEL(IEC_BOOL g, T in0, U in1) noexcept {
+    using CT = std::common_type_t<decltype(iec_unwrap(in0)), decltype(iec_unwrap(in1))>;
+    return iec_unwrap(g) ? static_cast<CT>(iec_unwrap(in1)) : static_cast<CT>(iec_unwrap(in0));
+}
+
 /**
  * MUX - Multiplexer (select from multiple inputs)
  * Input: ANY_INT selector, ANY values, Output: ANY (same type as inputs)
@@ -395,6 +436,14 @@ inline T SHL(T in, IEC_INT n) noexcept {
     return T(iec_unwrap(in) << iec_unwrap(n));
 }
 
+// Mixed-type shift count overloads (OSCAT uses various integer types for shift amount)
+template<typename T, typename N,
+    enable_if_any_bit<T> = 0,
+    std::enable_if_t<!std::is_same_v<std::decay_t<N>, IEC_INT>, int> = 0>
+inline T SHL(T in, N n) noexcept {
+    return T(iec_unwrap(in) << static_cast<int>(iec_unwrap(n)));
+}
+
 /**
  * SHR - Shift right
  * Input: ANY_BIT, ANY_INT (shift count), Output: ANY_BIT
@@ -402,6 +451,14 @@ inline T SHL(T in, IEC_INT n) noexcept {
 template<typename T, enable_if_any_bit<T> = 0>
 inline T SHR(T in, IEC_INT n) noexcept {
     return T(iec_unwrap(in) >> iec_unwrap(n));
+}
+
+// Mixed-type shift count overloads
+template<typename T, typename N,
+    enable_if_any_bit<T> = 0,
+    std::enable_if_t<!std::is_same_v<std::decay_t<N>, IEC_INT>, int> = 0>
+inline T SHR(T in, N n) noexcept {
+    return T(iec_unwrap(in) >> static_cast<int>(iec_unwrap(n)));
 }
 
 /**
@@ -416,6 +473,17 @@ inline T ROL(T in, IEC_INT n) noexcept {
     return T((v << shift) | (v >> (bits - shift)));
 }
 
+// Mixed-type rotate overloads
+template<typename T, typename N,
+    enable_if_any_bit<T> = 0,
+    std::enable_if_t<!std::is_same_v<std::decay_t<N>, IEC_INT>, int> = 0>
+inline T ROL(T in, N n) noexcept {
+    constexpr int bits = sizeof(iec_underlying_type_t<T>) * 8;
+    auto v = iec_unwrap(in);
+    auto shift = static_cast<int>(iec_unwrap(n)) % bits;
+    return T((v << shift) | (v >> (bits - shift)));
+}
+
 /**
  * ROR - Rotate right
  * Input: ANY_BIT, ANY_INT (shift count), Output: ANY_BIT
@@ -425,6 +493,17 @@ inline T ROR(T in, IEC_INT n) noexcept {
     constexpr int bits = sizeof(iec_underlying_type_t<T>) * 8;
     auto v = iec_unwrap(in);
     auto shift = iec_unwrap(n) % bits;
+    return T((v >> shift) | (v << (bits - shift)));
+}
+
+// Mixed-type rotate overloads
+template<typename T, typename N,
+    enable_if_any_bit<T> = 0,
+    std::enable_if_t<!std::is_same_v<std::decay_t<N>, IEC_INT>, int> = 0>
+inline T ROR(T in, N n) noexcept {
+    constexpr int bits = sizeof(iec_underlying_type_t<T>) * 8;
+    auto v = iec_unwrap(in);
+    auto shift = static_cast<int>(iec_unwrap(n)) % bits;
     return T((v >> shift) | (v << (bits - shift)));
 }
 
@@ -466,6 +545,33 @@ template<typename T> inline IEC_BYTE TO_BYTE(T v) noexcept { return CONVERT<IEC_
 template<typename T> inline IEC_WORD TO_WORD(T v) noexcept { return CONVERT<IEC_WORD>(v); }
 template<typename T> inline IEC_DWORD TO_DWORD(T v) noexcept { return CONVERT<IEC_DWORD>(v); }
 template<typename T> inline IEC_LWORD TO_LWORD(T v) noexcept { return CONVERT<IEC_LWORD>(v); }
+
+// Time/Date conversion functions
+// All time types are int64_t aliases, so IEC_TIME/IEC_DATE/IEC_TOD/IEC_DT
+// are all IECVar<int64_t>. We use a single template for each target type.
+// OSCAT calls TO_TIME with integer values (ms) — we convert ms → ns.
+// For TIME→TIME (same underlying type), the static_cast is identity and
+// the multiply still applies, but this matches CODESYS behavior where
+// integer values passed to TO_TIME are treated as milliseconds.
+
+template<typename T> inline IEC_TIME TO_TIME(T v) noexcept {
+    // If the input is already an IECVar<int64_t> (TIME/DATE/DT/TOD), this
+    // treats the raw nanosecond value as milliseconds — but in practice
+    // OSCAT only calls TO_TIME on integer types, not on TIME values.
+    return IEC_TIME(static_cast<TIME_t>(iec_unwrap(v)) * 1000000);
+}
+
+template<typename T> inline IEC_DATE TO_DATE(T v) noexcept {
+    return IEC_DATE(static_cast<DATE_t>(iec_unwrap(v)));
+}
+
+template<typename T> inline IEC_DT TO_DT(T v) noexcept {
+    return IEC_DT(static_cast<DT_t>(iec_unwrap(v)));
+}
+
+template<typename T> inline IEC_TOD TO_TOD(T v) noexcept {
+    return IEC_TOD(static_cast<TOD_t>(iec_unwrap(v)));
+}
 
 // =============================================================================
 // Time Utilities

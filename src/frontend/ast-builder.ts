@@ -224,6 +224,59 @@ function parseIECNumeric(raw: string): number {
  */
 export class ASTBuilder {
   /**
+   * Map of constant names to their integer values, populated per POU.
+   * Used by extractIntegerFromExpression to resolve array dimension bounds
+   * that reference VAR CONSTANT declarations (e.g., ARRAY[0..n] where n is a constant).
+   */
+  private currentConstantMap: Map<string, number> = new Map();
+
+  /**
+   * Scan raw CST varBlock nodes for CONSTANT declarations and populate
+   * currentConstantMap with their integer values.
+   */
+  private scanVarBlocksForConstants(varBlockNodes: CstNode[]): void {
+    this.currentConstantMap.clear();
+    for (const vbNode of varBlockNodes) {
+      const vbChildren = vbNode.children as CstChildren;
+      if (!vbChildren.CONSTANT) continue;
+      for (const declNode of getAllNodes(vbChildren.varDeclaration)) {
+        const declChildren = declNode.children as CstChildren;
+        const names = getAllIdentifierOrKeywordImages(
+          declChildren.identifierOrKeyword,
+        );
+        const initExprNode = getFirstNode(declChildren.initializerExpression);
+        if (!initExprNode || names.length === 0) continue;
+        const initChildren = initExprNode.children as CstChildren;
+        const exprNodes = getAllNodes(initChildren.expression);
+        if (exprNodes.length !== 1) continue;
+        try {
+          const expr = this.buildExpression(exprNodes[0]!);
+          if (!expr) continue;
+          let val: number | undefined;
+          if (expr.kind === "LiteralExpression") {
+            const n = Number(expr.value);
+            if (!isNaN(n) && Number.isInteger(n)) val = n;
+          } else if (
+            expr.kind === "UnaryExpression" &&
+            expr.operator === "-" &&
+            expr.operand.kind === "LiteralExpression"
+          ) {
+            const n = -Number(expr.operand.value);
+            if (!isNaN(n) && Number.isInteger(n)) val = n;
+          }
+          if (val !== undefined) {
+            for (const name of names) {
+              this.currentConstantMap.set(name.toUpperCase(), val);
+            }
+          }
+        } catch {
+          // Skip unparseable initializers
+        }
+      }
+    }
+  }
+
+  /**
    * Build a CompilationUnit from the root CST node.
    */
   buildCompilationUnit(cst: CstNode): CompilationUnit {
@@ -292,6 +345,9 @@ export class ASTBuilder {
     const nameToken = getAllTokens(children.Identifier)[0];
     const name = nameToken?.image ?? "";
 
+    // Scan for constants before building var blocks (for array dimension resolution)
+    this.scanVarBlocksForConstants(getAllNodes(children.varBlock));
+
     const varBlocks: VarBlock[] = [];
     for (const varBlockNode of getAllNodes(children.varBlock)) {
       varBlocks.push(this.buildVarBlock(varBlockNode));
@@ -343,6 +399,9 @@ export class ASTBuilder {
         referenceKind: "none",
       };
     }
+
+    // Scan for constants before building var blocks (for array dimension resolution)
+    this.scanVarBlocksForConstants(getAllNodes(children.varBlock));
 
     const varBlocks: VarBlock[] = [];
     for (const varBlockNode of getAllNodes(children.varBlock)) {
@@ -406,6 +465,9 @@ export class ASTBuilder {
         implementsList = implNames;
       }
     }
+
+    // Scan for constants before building var blocks (for array dimension resolution)
+    this.scanVarBlocksForConstants(getAllNodes(children.varBlock));
 
     const varBlocks: VarBlock[] = [];
     for (const varBlockNode of getAllNodes(children.varBlock)) {
@@ -2924,8 +2986,61 @@ export class ASTBuilder {
         const val = -Number(expr.operand.value);
         if (!isNaN(val) && Number.isInteger(val)) return val;
       }
+      // Resolve constant references (e.g., ARRAY[0..n] where n is VAR CONSTANT)
+      if (
+        expr.kind === "VariableExpression" &&
+        expr.fieldAccess.length === 0 &&
+        expr.subscripts.length === 0
+      ) {
+        const constVal = this.currentConstantMap.get(expr.name.toUpperCase());
+        if (constVal !== undefined) return constVal;
+      }
+      // Handle expressions like "constant - 1" (e.g., ARRAY[0..n-1])
+      if (expr.kind === "BinaryExpression") {
+        const leftVal = this.evaluateConstantExpr(expr);
+        if (leftVal !== undefined) return leftVal;
+      }
     } catch {
       // Fall through
+    }
+    return undefined;
+  }
+
+  /**
+   * Evaluate a constant expression that may reference VAR CONSTANT values.
+   * Supports basic integer arithmetic (+, -, *).
+   */
+  private evaluateConstantExpr(expr: Expression): number | undefined {
+    if (expr.kind === "LiteralExpression") {
+      const val = Number(expr.value);
+      if (!isNaN(val) && Number.isInteger(val)) return val;
+      return undefined;
+    }
+    if (
+      expr.kind === "VariableExpression" &&
+      expr.fieldAccess.length === 0 &&
+      expr.subscripts.length === 0
+    ) {
+      return this.currentConstantMap.get(expr.name.toUpperCase());
+    }
+    if (expr.kind === "UnaryExpression" && expr.operator === "-") {
+      const val = this.evaluateConstantExpr(expr.operand);
+      return val !== undefined ? -val : undefined;
+    }
+    if (expr.kind === "BinaryExpression") {
+      const left = this.evaluateConstantExpr(expr.left);
+      const right = this.evaluateConstantExpr(expr.right);
+      if (left === undefined || right === undefined) return undefined;
+      switch (expr.operator) {
+        case "+":
+          return left + right;
+        case "-":
+          return left - right;
+        case "*":
+          return left * right;
+        default:
+          return undefined;
+      }
     }
     return undefined;
   }

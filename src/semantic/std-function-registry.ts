@@ -526,6 +526,15 @@ export class StdFunctionRegistry {
       "ULINT",
       "REAL",
       "LREAL",
+      "TIME",
+      "DATE",
+      "TOD",
+      "DT",
+      "STRING",
+      "BYTE",
+      "WORD",
+      "DWORD",
+      "LWORD",
     ];
 
     for (const target of convTargets) {
@@ -728,6 +737,75 @@ export class StdFunctionRegistry {
         { name: "IN1", constraint: "ANY_STRING", isByRef: false },
         { name: "IN2", constraint: "ANY_STRING", isByRef: false },
       ],
+      isVariadic: false,
+      isConversion: false,
+      category: "string",
+    });
+
+    // CODE(STRING) -> INT (OSCAT: ASCII code of first character)
+    this.register({
+      name: "CODE",
+      cppName: "CODE",
+      returnConstraint: "specific",
+      returnMatchesFirstParam: false,
+      specificReturnType: "INT",
+      params: [{ name: "IN", constraint: "ANY_STRING", isByRef: false }],
+      isVariadic: false,
+      isConversion: false,
+      category: "string",
+    });
+
+    // CHR(INT) -> STRING (OSCAT: character from ASCII code)
+    this.register({
+      name: "CHR",
+      cppName: "CHR",
+      returnConstraint: "specific",
+      returnMatchesFirstParam: false,
+      specificReturnType: "STRING",
+      params: [
+        {
+          name: "IN",
+          constraint: "specific",
+          specificType: "INT",
+          isByRef: false,
+        },
+      ],
+      isVariadic: false,
+      isConversion: false,
+      category: "string",
+    });
+
+    // TRIM(STRING) -> STRING (OSCAT: remove leading/trailing whitespace)
+    this.register({
+      name: "TRIM",
+      cppName: "TRIM",
+      returnConstraint: "ANY_STRING",
+      returnMatchesFirstParam: true,
+      params: [{ name: "IN", constraint: "ANY_STRING", isByRef: false }],
+      isVariadic: false,
+      isConversion: false,
+      category: "string",
+    });
+
+    // LOWERCASE(STRING) -> STRING (OSCAT)
+    this.register({
+      name: "LOWERCASE",
+      cppName: "LOWERCASE",
+      returnConstraint: "ANY_STRING",
+      returnMatchesFirstParam: true,
+      params: [{ name: "IN", constraint: "ANY_STRING", isByRef: false }],
+      isVariadic: false,
+      isConversion: false,
+      category: "string",
+    });
+
+    // UPPERCASE(STRING) -> STRING (OSCAT)
+    this.register({
+      name: "UPPERCASE",
+      cppName: "UPPERCASE",
+      returnConstraint: "ANY_STRING",
+      returnMatchesFirstParam: true,
+      params: [{ name: "IN", constraint: "ANY_STRING", isByRef: false }],
       isVariadic: false,
       isConversion: false,
       category: "string",

@@ -9,9 +9,12 @@
 #pragma once
 
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <type_traits>
 #include "iec_types.hpp"
+#include "iec_var.hpp"
 
 namespace strucpp {
 
@@ -689,6 +692,140 @@ inline bool LT_STRING(const IECString<MaxLen1>& s1, const IECString<MaxLen2>& s2
 template<size_t MaxLen1, size_t MaxLen2>
 inline bool NE_STRING(const IECString<MaxLen1>& s1, const IECString<MaxLen2>& s2) noexcept {
     return s1 != s2;
+}
+
+// =============================================================================
+// TO_STRING Conversions
+// =============================================================================
+
+// Numeric → STRING (uses snprintf for real-time safety, no std::to_string)
+template<typename T,
+    std::enable_if_t<std::is_integral_v<decltype(iec_unwrap(std::declval<T>()))>, int> = 0>
+inline IECString<254> TO_STRING(T v) noexcept {
+    char buf[32];
+    auto raw = iec_unwrap(v);
+    if constexpr (std::is_unsigned_v<decltype(raw)>) {
+        std::snprintf(buf, sizeof(buf), "%llu", static_cast<unsigned long long>(raw));
+    } else {
+        std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(raw));
+    }
+    return IECString<254>(buf);
+}
+
+template<typename T,
+    std::enable_if_t<std::is_floating_point_v<decltype(iec_unwrap(std::declval<T>()))>, int> = 0>
+inline IECString<254> TO_STRING(T v) noexcept {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(iec_unwrap(v)));
+    return IECString<254>(buf);
+}
+
+// BOOL → STRING
+inline IECString<254> TO_STRING(IECVar<bool> v) noexcept {
+    return IECString<254>(iec_unwrap(v) ? "TRUE" : "FALSE");
+}
+
+// IECString → STRING (identity / cross-size copy)
+template<size_t N>
+inline IECString<254> TO_STRING(const IECString<N>& v) noexcept {
+    return IECString<254>(v.c_str());
+}
+
+template<size_t N>
+inline IECString<254> TO_STRING(const IECStringVar<N>& v) noexcept {
+    return IECString<254>(v.get().c_str());
+}
+
+// =============================================================================
+// OSCAT-Compatible String Functions
+// =============================================================================
+
+// CODE - Return ASCII code of first character
+template<size_t N>
+inline int32_t CODE(const IECString<N>& s) noexcept {
+    return s.length() > 0 ? static_cast<int32_t>(static_cast<unsigned char>(s[0])) : 0;
+}
+
+template<size_t N>
+inline int32_t CODE(const IECStringVar<N>& s) noexcept {
+    return CODE(s.get());
+}
+
+// CHR - Return string from ASCII code
+inline IECString<254> CHR(int32_t code) noexcept {
+    char buf[2] = { static_cast<char>(code), '\0' };
+    return IECString<254>(buf);
+}
+
+// TRIM - Remove leading and trailing whitespace
+template<size_t N>
+inline IECString<N> TRIM(const IECString<N>& s) noexcept {
+    const char* start = s.c_str();
+    const char* end = start + s.length();
+    while (start < end && (*start == ' ' || *start == '\t' || *start == '\r' || *start == '\n')) ++start;
+    while (end > start && (*(end-1) == ' ' || *(end-1) == '\t' || *(end-1) == '\r' || *(end-1) == '\n')) --end;
+    return IECString<N>(start, static_cast<size_t>(end - start));
+}
+
+template<size_t N>
+inline IECString<N> TRIM(const IECStringVar<N>& s) noexcept {
+    return TRIM(s.get());
+}
+
+// LOWERCASE / TOUPPER - Case conversion (OSCAT uses these names)
+template<size_t N>
+inline IECString<N> LOWERCASE(const IECString<N>& s) noexcept {
+    IECString<N> result(s);
+    for (size_t i = 0; i < result.length(); ++i) {
+        char c = result[i];
+        if (c >= 'A' && c <= 'Z') result[i] = c + ('a' - 'A');
+    }
+    return result;
+}
+
+template<size_t N>
+inline IECString<N> LOWERCASE(const IECStringVar<N>& s) noexcept {
+    return LOWERCASE(s.get());
+}
+
+template<size_t N>
+inline IECString<N> UPPERCASE(const IECString<N>& s) noexcept {
+    IECString<N> result(s);
+    for (size_t i = 0; i < result.length(); ++i) {
+        char c = result[i];
+        if (c >= 'a' && c <= 'z') result[i] = c - ('a' - 'A');
+    }
+    return result;
+}
+
+template<size_t N>
+inline IECString<N> UPPERCASE(const IECStringVar<N>& s) noexcept {
+    return UPPERCASE(s.get());
+}
+
+// CONCAT with const char* overloads (codegen may mix string literals with IECString)
+template<size_t MaxLen>
+inline IECString<MaxLen> CONCAT(const IECString<MaxLen>& s1, const char* s2) noexcept {
+    IECString<MaxLen> result(s1);
+    result.append(s2);
+    return result;
+}
+
+template<size_t MaxLen>
+inline IECString<MaxLen> CONCAT(const char* s1, const IECString<MaxLen>& s2) noexcept {
+    IECString<MaxLen> result(s1);
+    result.append(s2);
+    return result;
+}
+
+template<size_t MaxLen>
+inline IECString<MaxLen> CONCAT(const IECStringVar<MaxLen>& s1, const char* s2) noexcept {
+    return CONCAT(s1.get(), s2);
+}
+
+template<size_t MaxLen>
+inline IECString<MaxLen> CONCAT(const char* s1, const IECStringVar<MaxLen>& s2) noexcept {
+    return CONCAT(s1, s2.get());
 }
 
 } // namespace strucpp
