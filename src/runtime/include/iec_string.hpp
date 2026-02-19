@@ -563,7 +563,7 @@ inline IECString<MaxLen> RIGHT(const IECString<MaxLen>& s, size_t len) noexcept 
 }
 
 template<size_t MaxLen>
-inline IECString<MaxLen> MID(const IECString<MaxLen>& s, size_t pos, size_t len) noexcept {
+inline IECString<MaxLen> MID(const IECString<MaxLen>& s, size_t len, size_t pos) noexcept {
     if (pos == 0) return IECString<MaxLen>();
     return s.substr(pos - 1, len);
 }
@@ -661,8 +661,8 @@ inline IECString<MaxLen> RIGHT(const IECStringVar<MaxLen>& s, size_t len) noexce
 }
 
 template<size_t MaxLen>
-inline IECString<MaxLen> MID(const IECStringVar<MaxLen>& s, size_t pos, size_t len) noexcept {
-    return MID(s.get(), pos, len);
+inline IECString<MaxLen> MID(const IECStringVar<MaxLen>& s, size_t len, size_t pos) noexcept {
+    return MID(s.get(), len, pos);
 }
 
 template<size_t MaxLen1, size_t MaxLen2>
@@ -754,8 +754,8 @@ inline IECString<MaxLen> RIGHT(const IECVar<IECString<MaxLen>>& s, size_t len) n
 }
 
 template<size_t MaxLen>
-inline IECString<MaxLen> MID(const IECVar<IECString<MaxLen>>& s, size_t pos, size_t len) noexcept {
-    return MID(static_cast<IECString<MaxLen>>(s), pos, len);
+inline IECString<MaxLen> MID(const IECVar<IECString<MaxLen>>& s, size_t len, size_t pos) noexcept {
+    return MID(static_cast<IECString<MaxLen>>(s), len, pos);
 }
 
 template<size_t MaxLen>

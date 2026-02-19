@@ -536,12 +536,25 @@ inline T ROR(T in, N n) noexcept {
 // =============================================================================
 
 /**
+ * Helper: round-then-cast for REAL→integer conversions per IEC 61131-3
+ */
+template<typename ToVal, typename FromVal>
+inline ToVal iec_convert_value(FromVal value) noexcept {
+    // IEC 61131-3: REAL/LREAL to integer types use rounding (nearest)
+    if constexpr (std::is_floating_point_v<FromVal> && std::is_integral_v<ToVal>) {
+        return static_cast<ToVal>(std::round(static_cast<double>(value)));
+    } else {
+        return static_cast<ToVal>(value);
+    }
+}
+
+/**
  * Generic type conversion (IECVar → IECVar)
  */
 template<typename To, typename From>
 inline auto CONVERT(From value) noexcept
     -> std::enable_if_t<!std::is_arithmetic_v<From>, To> {
-    return To(static_cast<typename To::value_type>(iec_unwrap(value)));
+    return To(iec_convert_value<typename To::value_type>(iec_unwrap(value)));
 }
 
 /**
@@ -550,7 +563,7 @@ inline auto CONVERT(From value) noexcept
 template<typename To, typename From>
 inline auto CONVERT(From value) noexcept
     -> std::enable_if_t<std::is_arithmetic_v<From>, To> {
-    return To(static_cast<typename To::value_type>(value));
+    return To(iec_convert_value<typename To::value_type>(value));
 }
 
 // Specific conversion functions (aliases for clarity)

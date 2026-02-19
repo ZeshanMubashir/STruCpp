@@ -2807,6 +2807,22 @@ export class CodeGenerator {
       return `std::pow(static_cast<double>(${left}), static_cast<double>(${right}))`;
     }
 
+    // AND/OR on non-BOOL ANY_BIT types must use bitwise operators (& |)
+    // not logical operators (&& ||). Infer from either operand.
+    if (expr.operator === "AND" || expr.operator === "OR") {
+      const leftType = this.inferExprType(expr.left);
+      const rightType = this.inferExprType(expr.right);
+      const isBitwise = [leftType, rightType].some((t) => {
+        if (!t) return false;
+        const cat = CodeGenerator.IEC_TYPE_CAT[t.toUpperCase()];
+        return cat === "BIT" && t.toUpperCase() !== "BOOL";
+      });
+      if (isBitwise) {
+        const op = expr.operator === "AND" ? "&" : "|";
+        return `${left} ${op} ${right}`;
+      }
+    }
+
     const cppOp = CodeGenerator.BINARY_OP_MAP[expr.operator] ?? expr.operator;
     return `${left} ${cppOp} ${right}`;
   }
@@ -2818,8 +2834,17 @@ export class CodeGenerator {
     const operand = this.generateExpression(expr.operand);
 
     switch (expr.operator) {
-      case "NOT":
+      case "NOT": {
+        // NOT on non-BOOL ANY_BIT types must use bitwise complement (~)
+        const opType = this.inferExprType(expr.operand);
+        if (opType) {
+          const cat = CodeGenerator.IEC_TYPE_CAT[opType.toUpperCase()];
+          if (cat === "BIT" && opType.toUpperCase() !== "BOOL") {
+            return `~${operand}`;
+          }
+        }
         return `!${operand}`;
+      }
       case "-":
         return `-${operand}`;
       case "+":
@@ -2917,6 +2942,18 @@ export class CodeGenerator {
       }
       case "UnaryExpression":
         return this.inferExprType(expr.operand);
+      case "BinaryExpression": {
+        // For bitwise/arithmetic ops, infer from operands
+        const lt = this.inferExprType(expr.left);
+        const rt = this.inferExprType(expr.right);
+        // Prefer variable types over literal types
+        if (lt && rt) {
+          const lBits = CodeGenerator.IEC_TYPE_BITS[lt] ?? 0;
+          const rBits = CodeGenerator.IEC_TYPE_BITS[rt] ?? 0;
+          return rBits > lBits ? rt : lt;
+        }
+        return lt ?? rt;
+      }
       case "FunctionCallExpression": {
         const fnUpper = expr.functionName.toUpperCase();
         // Check user-defined functions
@@ -2933,6 +2970,10 @@ export class CodeGenerator {
         const std = this.stdRegistry.lookup(fnUpper);
         if (std?.specificReturnType)
           return std.specificReturnType.toUpperCase();
+        // For generic functions returning same type as first param, infer from first arg
+        if (std?.returnMatchesFirstParam && expr.arguments.length > 0) {
+          return this.inferExprType(expr.arguments[0]!.value);
+        }
         return undefined;
       }
       case "ParenthesizedExpression":
@@ -3074,11 +3115,18 @@ export class CodeGenerator {
     }
 
     // Cast literals to dominant type.
-    // Bare literals (no typePrefix) are untyped — always castable to dominant.
+    // Bare literals (no typePrefix) are untyped — castable to dominant unless
+    // this would narrow a REAL/LREAL literal to an integer type (losing precision).
     for (const i of literalIndices) {
       const litType = argTypes[i];
       if (!litType || litType === dominant) continue;
       const expr = argExprs[i]!.value;
+      const litCat = CodeGenerator.IEC_TYPE_CAT[litType];
+      const domCat = CodeGenerator.IEC_TYPE_CAT[dominant];
+      // Never narrow a REAL literal to integer — that truncates (e.g. 1.5 → 1)
+      if (litCat === "REAL" && domCat !== "REAL" && this.isBareLiteral(expr)) {
+        continue;
+      }
       if (
         this.isBareLiteral(expr) ||
         this.canImplicitWiden(litType, dominant)
