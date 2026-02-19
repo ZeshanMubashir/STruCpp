@@ -164,6 +164,57 @@ function getAllTokens(items: (CstNode | IToken)[] | undefined): IToken[] {
   return items.filter((item): item is IToken => "image" in item);
 }
 
+/**
+ * Extract the identifier string from an identifierOrKeyword CST node.
+ * The node contains either an Identifier token or one of the contextual keyword tokens
+ * (SET, GET, ON, OVERRIDE, ABSTRACT, FINAL).
+ */
+function getIdentifierOrKeywordImage(node: CstNode): string {
+  const children = node.children as CstChildren;
+  // Check Identifier first (most common case)
+  const identToken = getFirstToken(children.Identifier);
+  if (identToken) return identToken.image;
+  // Check each contextual keyword token
+  for (const key of ["SET", "GET", "ON", "OVERRIDE", "ABSTRACT", "FINAL"]) {
+    const kwToken = getFirstToken(children[key]);
+    if (kwToken) return kwToken.image;
+  }
+  return "";
+}
+
+/**
+ * Extract all identifier strings from an array of identifierOrKeyword CST nodes.
+ */
+function getAllIdentifierOrKeywordImages(
+  items: (CstNode | IToken)[] | undefined,
+): string[] {
+  if (!items) return [];
+  const nodes = items.filter((item): item is CstNode => "children" in item);
+  return nodes.map(getIdentifierOrKeywordImage);
+}
+
+/**
+ * Parse an IEC 61131-3 integer literal that may use based notation (16#FF, 8#77, 2#1010).
+ */
+function parseIECInteger(raw: string): number {
+  const upper = raw.toUpperCase().replace(/_/g, "");
+  if (upper.startsWith("16#")) return parseInt(upper.slice(3), 16);
+  if (upper.startsWith("8#")) return parseInt(upper.slice(2), 8);
+  if (upper.startsWith("2#")) return parseInt(upper.slice(2), 2);
+  return parseInt(upper, 10);
+}
+
+/**
+ * Parse an IEC 61131-3 numeric literal (integer or real) that may use based notation.
+ * Handles 16#FF, 8#77, 2#1010, plain integers, and real literals (1.5, 1.5E10).
+ */
+function parseIECNumeric(raw: string): number {
+  if (raw.includes(".") || /[eE]/.test(raw)) {
+    return parseFloat(raw.replace(/_/g, ""));
+  }
+  return parseIECInteger(raw);
+}
+
 // =============================================================================
 // AST Builder Class
 // =============================================================================
@@ -214,6 +265,12 @@ export class ASTBuilder {
       configurations.push(this.buildConfigurationDeclaration(node));
     }
 
+    // Process top-level VAR_GLOBAL blocks (GVL files)
+    const globalVarBlocks: VarBlock[] = [];
+    for (const node of getAllNodes(children.varBlock)) {
+      globalVarBlocks.push(this.buildVarBlock(node));
+    }
+
     return {
       kind: "CompilationUnit",
       sourceSpan: nodeToSourceSpan(cst),
@@ -223,6 +280,7 @@ export class ASTBuilder {
       interfaces,
       types,
       configurations,
+      globalVarBlocks,
     };
   }
 
@@ -264,8 +322,11 @@ export class ASTBuilder {
    */
   buildFunctionDeclaration(node: CstNode): FunctionDeclaration {
     const children = node.children as CstChildren;
-    const nameToken = getAllTokens(children.Identifier)[0];
-    const name = nameToken?.image ?? "";
+    // Function name comes from identifierOrKeyword (allows OVERRIDE etc. as names)
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const name = idOrKwNodes[0]
+      ? getIdentifierOrKeywordImage(idOrKwNodes[0])
+      : "";
 
     // Get return type from the dataType subrule
     const dataTypeNode = getFirstNode(children.dataType);
@@ -315,26 +376,31 @@ export class ASTBuilder {
   buildFunctionBlockDeclaration(node: CstNode): FunctionBlockDeclaration {
     const children = node.children as CstChildren;
 
-    // FB name is the first Identifier (after optional ABSTRACT/FINAL)
-    const allIdentifiers = getAllTokens(children.Identifier);
-    const name = allIdentifiers[0]?.image ?? "";
+    // FB name comes from identifierOrKeyword subrule (allows contextual keywords as names)
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const name = idOrKwNodes[0]
+      ? getIdentifierOrKeywordImage(idOrKwNodes[0])
+      : "";
 
     // Check for ABSTRACT/FINAL modifiers
     const isAbstract = !!children.ABSTRACT;
     const isFinal = !!children.FINAL;
 
-    // Check for EXTENDS clause (second Identifier if EXTENDS token present)
+    // Remaining Identifier tokens are for EXTENDS and IMPLEMENTS clauses
+    const allIdentifiers = getAllTokens(children.Identifier);
+
+    // Check for EXTENDS clause
     let extendsName: string | undefined;
     if (children.EXTENDS) {
-      // The identifier after EXTENDS is at index 1
-      extendsName = allIdentifiers[1]?.image;
+      // The identifier after EXTENDS is the first Identifier token
+      extendsName = allIdentifiers[0]?.image;
     }
 
     // Check for IMPLEMENTS clause (identifiers after IMPLEMENTS keyword)
     let implementsList: string[] | undefined;
     if (children.IMPLEMENTS) {
-      // Identifiers after IMPLEMENTS - skip FB name and optional EXTENDS name
-      const startIdx = extendsName ? 2 : 1;
+      // Skip the EXTENDS identifier if present
+      const startIdx = extendsName ? 1 : 0;
       const implNames = allIdentifiers.slice(startIdx).map((t) => t.image);
       if (implNames.length > 0) {
         implementsList = implNames;
@@ -643,9 +709,13 @@ export class ASTBuilder {
       return this.buildSimpleEnumDefinition(simpleEnumNode);
     }
 
-    // Check for array type
+    // Check for array type (may include POINTER TO prefix from singleTypeDeclaration)
     const arrayNode = getFirstNode(children.arrayType);
     if (arrayNode) {
+      // If POINTER TO prefix present, represent as TypeReference with arrayDimensions
+      if (children.POINTER) {
+        return this.buildPointerToArrayTypeReference(arrayNode);
+      }
       return this.buildArrayDefinition(arrayNode);
     }
 
@@ -767,6 +837,54 @@ export class ASTBuilder {
       dimensions,
       elementType,
     };
+  }
+
+  /**
+   * Build a TypeReference for POINTER TO ARRAY[...] OF T in TYPE declarations.
+   * Represents the pointer-to-array as a TypeReference with arrayDimensions,
+   * matching the representation used by varDeclaration for inline array types.
+   */
+  buildPointerToArrayTypeReference(arrayNode: CstNode): TypeReference {
+    const arrayChildren = arrayNode.children as CstChildren;
+
+    // Get element type from nested dataType
+    const elementTypeNode = getFirstNode(arrayChildren.dataType);
+    let elementTypeName = "INT";
+    if (elementTypeNode) {
+      const elemChildren = elementTypeNode.children as CstChildren;
+      const elemNameToken = getFirstToken(elemChildren.Identifier);
+      if (elemNameToken) {
+        elementTypeName = elemNameToken.image;
+      }
+    }
+
+    // Extract integer bounds from dimensions
+    const dimNodes = getAllNodes(arrayChildren.arrayDimension);
+    const arrayDimensions: Array<{ start: number; end: number }> = [];
+    for (const dimNode of dimNodes) {
+      const dimChildren = dimNode.children as CstChildren;
+      const exprNodes = getAllNodes(dimChildren.expression);
+      if (exprNodes.length >= 2) {
+        const startVal = this.extractIntegerFromExpression(exprNodes[0]!);
+        const endVal = this.extractIntegerFromExpression(exprNodes[1]!);
+        if (startVal !== undefined && endVal !== undefined) {
+          arrayDimensions.push({ start: startVal, end: endVal });
+        }
+      }
+    }
+
+    const result: TypeReference = {
+      kind: "TypeReference",
+      sourceSpan: nodeToSourceSpan(arrayNode),
+      name: elementTypeName,
+      isReference: true,
+      referenceKind: "pointer_to",
+    };
+    if (arrayDimensions.length > 0) {
+      result.arrayDimensions = arrayDimensions;
+      result.elementTypeName = elementTypeName;
+    }
+    return result;
   }
 
   /**
@@ -1044,8 +1162,11 @@ export class ASTBuilder {
    */
   buildVarDeclaration(node: CstNode): VarDeclaration {
     const children = node.children as CstChildren;
-    const identifiers = getAllTokens(children.Identifier);
-    const names = identifiers.map((t) => t.image);
+    // Variable names come from identifierOrKeyword subrule nodes (allows SET, ON, etc. as names)
+    const names = getAllIdentifierOrKeywordImages(children.identifierOrKeyword);
+
+    // Check for POINTER TO prefix at varDeclaration level (handles POINTER TO ARRAY[...] OF T)
+    const hasPointerTo = !!children.POINTER;
 
     // Check for inline array type first (ARRAY[...] OF type)
     const arrayTypeNode = getFirstNode(children.arrayType);
@@ -1069,13 +1190,36 @@ export class ASTBuilder {
       }
     }
 
-    // Get initial value if present
+    // Apply POINTER TO from varDeclaration level (overrides any existing reference kind)
+    if (hasPointerTo && type.referenceKind === "none") {
+      type.referenceKind = "pointer_to";
+      type.isReference = true;
+    }
+
+    // Get initial value if present (from initializerExpression rule)
     let initialValue: Expression | undefined;
-    const exprNode = getFirstNode(children.expression);
-    if (exprNode) {
-      const expr = this.buildExpression(exprNode);
-      if (expr) {
-        initialValue = expr;
+    const initExprNode = getFirstNode(children.initializerExpression);
+    if (initExprNode) {
+      const initChildren = initExprNode.children as CstChildren;
+      const exprNodes = getAllNodes(initChildren.expression);
+      if (exprNodes.length > 1) {
+        // Multiple expressions → ArrayLiteralExpression
+        const elements: Expression[] = [];
+        for (const en of exprNodes) {
+          const e = this.buildExpression(en);
+          if (e) elements.push(e);
+        }
+        initialValue = {
+          kind: "ArrayLiteralExpression",
+          sourceSpan: nodeToSourceSpan(initExprNode),
+          elements,
+        };
+      } else if (exprNodes.length === 1) {
+        // Single expression → use directly
+        const expr = this.buildExpression(exprNodes[0]!);
+        if (expr) {
+          initialValue = expr;
+        }
       }
     }
 
@@ -1110,20 +1254,30 @@ export class ASTBuilder {
     const name = nameToken?.image ?? "INT";
     const isRefTo = !!children.REF_TO;
     const isReferenceTo = !!children.REFERENCE_TO;
-    const isReference = isRefTo || isReferenceTo;
+    const isPointerTo = !!children.POINTER;
+    const isReference = isRefTo || isReferenceTo || isPointerTo;
 
     let referenceKind: ReferenceKind = "none";
     if (isRefTo) {
       referenceKind = "ref_to";
     } else if (isReferenceTo) {
       referenceKind = "reference_to";
+    } else if (isPointerTo) {
+      referenceKind = "pointer_to";
     }
 
-    // Extract optional parameterized length: STRING(n) / WSTRING(n)
-    let maxLength: number | undefined;
+    // Extract optional parameterized length: STRING(n) / WSTRING(n) / STRING(CONSTANT)
+    let maxLength: number | string | undefined;
     const lengthToken = getFirstToken(children.IntegerLiteral);
     if (lengthToken) {
       maxLength = parseInt(lengthToken.image, 10);
+    } else {
+      // Check for identifier-based length (STRING(CONSTANT_NAME))
+      // Note: children.Identifier[0] is the type name itself; [1] would be the length constant
+      const allIdents = getAllTokens(children.Identifier);
+      if (allIdents.length > 1) {
+        maxLength = allIdents[1]!.image;
+      }
     }
 
     const result: TypeReference = {
@@ -1178,13 +1332,38 @@ export class ASTBuilder {
       ? `__VLA_${dimSuffix}_${elementTypeName}`
       : `__INLINE_ARRAY_${elementTypeName}`;
 
-    return {
+    // For fixed arrays, extract integer bounds from dimension expressions
+    let arrayDimensions: Array<{ start: number; end: number }> | undefined;
+    if (!isVLA) {
+      arrayDimensions = [];
+      for (const dimNode of dimNodes) {
+        const dimChildren = dimNode.children as CstChildren;
+        const exprNodes = getAllNodes(dimChildren.expression);
+        if (exprNodes.length >= 2) {
+          const startVal = this.extractIntegerFromExpression(exprNodes[0]!);
+          const endVal = this.extractIntegerFromExpression(exprNodes[1]!);
+          if (startVal !== undefined && endVal !== undefined) {
+            arrayDimensions.push({ start: startVal, end: endVal });
+          }
+        }
+      }
+      if (arrayDimensions.length === 0) {
+        arrayDimensions = undefined;
+      }
+    }
+
+    const result: TypeReference = {
       kind: "TypeReference",
       sourceSpan: nodeToSourceSpan(parentNode),
       name,
       isReference: false,
       referenceKind: "none",
     };
+    if (arrayDimensions) {
+      result.arrayDimensions = arrayDimensions;
+      result.elementTypeName = elementTypeName;
+    }
+    return result;
   }
 
   /**
@@ -2091,7 +2270,7 @@ export class ASTBuilder {
         kind: "LiteralExpression",
         sourceSpan: tokenToSourceSpan(token),
         literalType: "INT",
-        value: parseInt(token.image, 10),
+        value: parseIECInteger(token.image),
         rawValue: token.image,
       };
     }
@@ -2166,13 +2345,34 @@ export class ASTBuilder {
     const children = node.children as CstChildren;
 
     // Check for different literal types
+
+    // Typed literal: BYTE#255, DWORD#16#FF, INT#0, etc.
+    if (children.TypedLiteral) {
+      const token = getFirstToken(children.TypedLiteral)!;
+      const raw = token.image;
+      const hashIdx = raw.indexOf("#");
+      const typePrefix = raw.substring(0, hashIdx).toUpperCase();
+      const valuePart = raw.substring(hashIdx + 1);
+      const numValue = parseIECNumeric(valuePart);
+      const litType =
+        typePrefix === "REAL" || typePrefix === "LREAL" ? "REAL" : "INT";
+      return {
+        kind: "LiteralExpression",
+        sourceSpan: tokenToSourceSpan(token),
+        literalType: litType,
+        value: numValue,
+        rawValue: raw,
+        typePrefix,
+      };
+    }
+
     if (children.IntegerLiteral) {
       const token = getFirstToken(children.IntegerLiteral)!;
       return {
         kind: "LiteralExpression",
         sourceSpan: tokenToSourceSpan(token),
         literalType: "INT",
-        value: parseInt(token.image, 10),
+        value: parseIECInteger(token.image),
         rawValue: token.image,
       };
     }
@@ -2258,20 +2458,26 @@ export class ASTBuilder {
    */
   buildVariableExpression(node: CstNode): VariableExpression {
     const children = node.children as CstChildren;
-    const nameToken = getFirstToken(children.Identifier);
-    const name = nameToken?.image ?? "";
+    // identifierOrKeyword subrule nodes: first is the variable name, rest are field accessors
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const name = idOrKwNodes[0]
+      ? getIdentifierOrKeywordImage(idOrKwNodes[0])
+      : "";
 
     // Check for dereference operator (^)
     const isDereference = !!children.Caret;
 
-    // Get additional field access identifiers (Identifier[0] is the variable name)
-    const allIdentifiers = getAllTokens(children.Identifier);
+    // Get additional field access from identifierOrKeyword nodes (index 1+)
+    // Also include IntegerLiteral tokens for bit access (var.0, var.31)
+    const allIntLiterals = getAllTokens(children.IntegerLiteral);
     const fieldAccess: string[] = [];
-    for (let i = 1; i < allIdentifiers.length; i++) {
-      const token = allIdentifiers[i];
-      if (token) {
-        fieldAccess.push(token.image);
-      }
+    for (let i = 1; i < idOrKwNodes.length; i++) {
+      const node = idOrKwNodes[i];
+      if (node) fieldAccess.push(getIdentifierOrKeywordImage(node));
+    }
+    // Bit access indices appear as IntegerLiteral tokens after Dot
+    for (const intToken of allIntLiterals) {
+      fieldAccess.push(intToken.image);
     }
 
     // Extract subscript expressions from array access: arr[i], arr[i,j], etc.
@@ -2311,8 +2517,11 @@ export class ASTBuilder {
       };
     }
 
-    const identifiers = getAllTokens(children.Identifier);
-    const memberName = identifiers[0]?.image ?? "";
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const memberName =
+      idOrKwNodes.length > 0
+        ? getIdentifierOrKeywordImage(idOrKwNodes[0]!)
+        : "";
 
     // If there's a LParen, it's a method call
     if (children.LParen) {
@@ -2350,8 +2559,11 @@ export class ASTBuilder {
    */
   buildSuperAccessExpression(node: CstNode): Expression {
     const children = node.children as CstChildren;
-    const identifiers = getAllTokens(children.Identifier);
-    const memberName = identifiers[0]?.image ?? "";
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const memberName =
+      idOrKwNodes.length > 0
+        ? getIdentifierOrKeywordImage(idOrKwNodes[0]!)
+        : "";
 
     // If there's a LParen, it's a method call
     if (children.LParen) {
@@ -2390,9 +2602,13 @@ export class ASTBuilder {
     node: CstNode,
   ): FunctionCallExpression | MethodCallExpression {
     const children = node.children as CstChildren;
-    const identifiers = getAllTokens(children.Identifier);
-    const instanceName = identifiers[0]?.image ?? "";
-    const methodName = identifiers[1]?.image ?? "";
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const instanceName = idOrKwNodes[0]
+      ? getIdentifierOrKeywordImage(idOrKwNodes[0])
+      : "";
+    const methodName = idOrKwNodes[1]
+      ? getIdentifierOrKeywordImage(idOrKwNodes[1])
+      : "";
 
     const args: Argument[] = [];
     const argListNode = getFirstNode(children.argumentList);
@@ -2425,8 +2641,10 @@ export class ASTBuilder {
    */
   buildFunctionCallExpression(node: CstNode): FunctionCallExpression {
     const children = node.children as CstChildren;
-    const nameToken = getFirstToken(children.Identifier);
-    const functionName = nameToken?.image ?? "";
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const functionName = idOrKwNodes[0]
+      ? getIdentifierOrKeywordImage(idOrKwNodes[0])
+      : "";
 
     const args: Argument[] = [];
     const argListNode = getFirstNode(children.argumentList);
@@ -2455,8 +2673,10 @@ export class ASTBuilder {
     parentNode: CstNode,
   ): MethodCallExpression {
     const chainChildren = chainNode.children as CstChildren;
-    const chainMethodName =
-      getAllTokens(chainChildren.Identifier)[0]?.image ?? "";
+    const chainIdOrKw = getAllNodes(chainChildren.identifierOrKeyword);
+    const chainMethodName = chainIdOrKw[0]
+      ? getIdentifierOrKeywordImage(chainIdOrKw[0])
+      : "";
 
     const chainArgs: Argument[] = [];
     const chainArgList = getFirstNode(chainChildren.argumentList);
@@ -2485,12 +2705,13 @@ export class ASTBuilder {
     let name: string | undefined;
     let isOutput = false;
 
-    // Check for named argument: Identifier (Assign | OutputAssign)
-    const identToken = getFirstToken(children.Identifier);
-    if (identToken) {
+    // Check for named argument: identifierOrKeyword (Assign | OutputAssign)
+    // Named params can use contextual keywords like SET := TRUE
+    const idOrKwNode = getFirstNode(children.identifierOrKeyword);
+    if (idOrKwNode) {
       // Named argument - check if it's input (:=) or output (=>)
       if (children.Assign || children.OutputAssign) {
-        name = identToken.image;
+        name = getIdentifierOrKeywordImage(idOrKwNode);
         isOutput = !!children.OutputAssign;
       }
     }
@@ -2538,9 +2759,13 @@ export class ASTBuilder {
    */
   buildMethodCallStatement(node: CstNode): FunctionCallStatement {
     const children = node.children as CstChildren;
-    const identifiers = getAllTokens(children.Identifier);
-    const instanceName = identifiers[0]?.image ?? "";
-    const methodName = identifiers[1]?.image ?? "";
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const instanceName = idOrKwNodes[0]
+      ? getIdentifierOrKeywordImage(idOrKwNodes[0])
+      : "";
+    const methodName = idOrKwNodes[1]
+      ? getIdentifierOrKeywordImage(idOrKwNodes[1])
+      : "";
 
     const args: Argument[] = [];
     const argListNode = getFirstNode(children.argumentList);
@@ -2578,8 +2803,11 @@ export class ASTBuilder {
    */
   buildThisStatement(node: CstNode): Statement {
     const children = node.children as CstChildren;
-    const identifiers = getAllTokens(children.Identifier);
-    const memberName = identifiers[0]?.image ?? "";
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const memberName =
+      idOrKwNodes.length > 0
+        ? getIdentifierOrKeywordImage(idOrKwNodes[0]!)
+        : "";
 
     // Check if it's an assignment (has Assign token)
     if (children.Assign) {
@@ -2633,8 +2861,11 @@ export class ASTBuilder {
    */
   buildSuperCallStatement(node: CstNode): FunctionCallStatement {
     const children = node.children as CstChildren;
-    const identifiers = getAllTokens(children.Identifier);
-    const methodName = identifiers[0]?.image ?? "";
+    const idOrKwNodes = getAllNodes(children.identifierOrKeyword);
+    const methodName =
+      idOrKwNodes.length > 0
+        ? getIdentifierOrKeywordImage(idOrKwNodes[0]!)
+        : "";
 
     const args: Argument[] = [];
     const argListNode = getFirstNode(children.argumentList);
@@ -2672,8 +2903,33 @@ export class ASTBuilder {
   }
 
   /**
-   * Create a dummy literal expression for error recovery.
+   * Try to extract an integer value from a simple expression CST node.
+   * Handles integer literals and unary minus on integer literals.
    */
+  private extractIntegerFromExpression(exprNode: CstNode): number | undefined {
+    // Walk down expression → orExpression → xorExpression → ... → unaryExpression → primaryExpression → literal
+    // Rather than tracing through every level, build the expression AST and check if it's a literal
+    try {
+      const expr = this.buildExpression(exprNode);
+      if (!expr) return undefined;
+      if (expr.kind === "LiteralExpression") {
+        const val = Number(expr.value);
+        if (!isNaN(val) && Number.isInteger(val)) return val;
+      }
+      if (
+        expr.kind === "UnaryExpression" &&
+        expr.operator === "-" &&
+        expr.operand.kind === "LiteralExpression"
+      ) {
+        const val = -Number(expr.operand.value);
+        if (!isNaN(val) && Number.isInteger(val)) return val;
+      }
+    } catch {
+      // Fall through
+    }
+    return undefined;
+  }
+
   /**
    * Extract statements from a statementList CST node.
    */

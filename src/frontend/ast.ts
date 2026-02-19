@@ -115,6 +115,7 @@ export interface CompilationUnit extends ASTNode {
   interfaces: InterfaceDeclaration[];
   types: TypeDeclaration[];
   configurations: ConfigurationDeclaration[];
+  globalVarBlocks: VarBlock[];
 }
 
 // =============================================================================
@@ -326,7 +327,7 @@ export interface ArrayDimension extends ASTNode {
 /**
  * Reference kind for type references
  */
-export type ReferenceKind = "none" | "ref_to" | "reference_to";
+export type ReferenceKind = "none" | "ref_to" | "reference_to" | "pointer_to";
 
 /**
  * Type reference (name of a type)
@@ -336,7 +337,9 @@ export interface TypeReference extends ASTNode {
   name: string;
   isReference: boolean; // true for REF_TO (for backwards compat)
   referenceKind: ReferenceKind; // more specific: "none", "ref_to", or "reference_to"
-  maxLength?: number; // For STRING(n) / WSTRING(n) parameterized length
+  maxLength?: number | string; // For STRING(n) / WSTRING(n) parameterized length; string for constant names
+  arrayDimensions?: Array<{ start: number; end: number }>; // For __INLINE_ARRAY_* types
+  elementTypeName?: string; // Element type for inline arrays (e.g. "BYTE" for ARRAY[0..7] OF BYTE)
 }
 
 // =============================================================================
@@ -563,7 +566,8 @@ export type Expression =
   | ParenthesizedExpression
   | RefExpression
   | DrefExpression
-  | NewExpression;
+  | NewExpression
+  | ArrayLiteralExpression;
 
 /**
  * Binary operator
@@ -658,6 +662,7 @@ export interface LiteralExpression extends TypedNode {
   literalType: LiteralType;
   value: string | number | boolean;
   rawValue: string;
+  typePrefix?: string;
 }
 
 /**
@@ -706,6 +711,15 @@ export interface NewExpression extends TypedNode {
   kind: "NewExpression";
   allocationType: TypeReference;
   arraySize?: Expression;
+}
+
+/**
+ * Array literal expression (comma-separated list of values)
+ * Used for inline array initializers: ARRAY := 0, 31, 59, 90;
+ */
+export interface ArrayLiteralExpression extends TypedNode {
+  kind: "ArrayLiteralExpression";
+  elements: Expression[];
 }
 
 // =============================================================================
@@ -853,5 +867,6 @@ export function createCompilationUnit(): CompilationUnit {
     interfaces: [],
     types: [],
     configurations: [],
+    globalVarBlocks: [],
   };
 }

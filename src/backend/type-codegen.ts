@@ -19,6 +19,7 @@ import type {
   UnaryExpression,
 } from "../frontend/ast.js";
 import { TypeRegistry, isElementaryType } from "../semantic/type-registry.js";
+import { formatArrayType } from "./codegen-utils.js";
 
 /**
  * Options for type code generation
@@ -203,15 +204,39 @@ export class TypeCodeGenerator {
     this.emit(`struct ${name} {`);
 
     for (const field of def.fields) {
-      const cppType = this.mapTypeToCpp(field.type.name);
+      let cppType: string;
+      if (field.type.arrayDimensions && field.type.elementTypeName) {
+        // Inline array type: emit Array1D/2D/3D<ElementType, bounds...>
+        const elemCpp = this.mapTypeToCpp(field.type.elementTypeName);
+        cppType = formatArrayType(elemCpp, field.type.arrayDimensions);
+      } else {
+        cppType = this.mapTypeToCpp(field.type.name);
+      }
+      if (field.type.referenceKind === "pointer_to") {
+        cppType += "*";
+      }
       for (const fieldName of field.names) {
+        // Mangle field name if it matches its user-defined type name
+        // to avoid GCC -Wchanges-meaning error. Compare against the ST
+        // type name, not cppType (which may include pointer '*' suffix).
+        const emitName =
+          !isElementaryType(field.type.name.toUpperCase()) &&
+          fieldName.toUpperCase() === field.type.name.toUpperCase()
+            ? `${fieldName}_`
+            : fieldName;
         if (field.initialValue) {
           const initVal = this.expressionToCpp(field.initialValue);
           this.emit(
-            `${this.options.indent}${cppType} ${fieldName} = ${initVal};`,
+            `${this.options.indent}${cppType} ${emitName} = ${initVal};`,
           );
         } else {
-          this.emit(`${this.options.indent}${cppType} ${fieldName}{};`);
+          if (field.type.referenceKind === "pointer_to") {
+            this.emit(
+              `${this.options.indent}${cppType} ${emitName} = nullptr;`,
+            );
+          } else {
+            this.emit(`${this.options.indent}${cppType} ${emitName}{};`);
+          }
         }
       }
     }
@@ -282,12 +307,8 @@ export class TypeCodeGenerator {
 
     // Generate appropriate Array template based on dimensions
     let cppType: string;
-    if (numDims === 1 && bounds[0]) {
-      cppType = `Array1D<${elementType}, ${bounds[0].start}, ${bounds[0].end}>`;
-    } else if (numDims === 2 && bounds[0] && bounds[1]) {
-      cppType = `Array2D<${elementType}, ${bounds[0].start}, ${bounds[0].end}, ${bounds[1].start}, ${bounds[1].end}>`;
-    } else if (numDims === 3 && bounds[0] && bounds[1] && bounds[2]) {
-      cppType = `Array3D<${elementType}, ${bounds[0].start}, ${bounds[0].end}, ${bounds[1].start}, ${bounds[1].end}, ${bounds[2].start}, ${bounds[2].end}>`;
+    if (numDims <= 3 && bounds.length === numDims) {
+      cppType = formatArrayType(elementType, bounds);
     } else {
       // Fallback for higher dimensions: use nested std::array (loses bounds info)
       // This maintains backwards compatibility but loses arbitrary index support
@@ -340,7 +361,17 @@ export class TypeCodeGenerator {
    *   using MyInt = INT_t;
    */
   private generateTypeAlias(name: string, def: TypeReference): void {
-    const cppType = this.mapTypeToCpp(def.name);
+    let cppType: string;
+    if (def.arrayDimensions && def.elementTypeName) {
+      // POINTER TO ARRAY[...] OF T — use array template
+      const elemCpp = this.mapTypeToCpp(def.elementTypeName);
+      cppType = formatArrayType(elemCpp, def.arrayDimensions);
+    } else {
+      cppType = this.mapTypeToCpp(def.name);
+    }
+    if (def.referenceKind === "pointer_to") {
+      cppType += "*";
+    }
     this.emit(`using ${name} = ${cppType};`);
     this.emit("");
   }

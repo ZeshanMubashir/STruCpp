@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { tokenize, STLexer } from '../../src/frontend/lexer.js';
+import { tokenize, STLexer, uppercaseSource } from '../../src/frontend/lexer.js';
 
 describe('STLexer', () => {
   describe('initialization', () => {
@@ -176,7 +176,7 @@ describe('STLexer', () => {
       expect(result.errors).toHaveLength(0);
       expect(result.tokens).toHaveLength(1);
       expect(result.tokens[0]?.tokenType.name).toBe('Identifier');
-      expect(result.tokens[0]?.image).toBe('myVar');
+      expect(result.tokens[0]?.image).toBe('MYVAR');
     });
 
     it('should tokenize identifiers with underscores', () => {
@@ -234,12 +234,13 @@ describe('STLexer', () => {
 
     it('should tokenize time literals with various units', () => {
       const validLiterals = ['T#10ms', 'T#100us', 'T#1000ns', 'T#1d', 'T#2h', 'T#30m', 'T#45s'];
-      for (const literal of validLiterals) {
-        const result = tokenize(literal);
+      const expectedImages = ['T#10MS', 'T#100US', 'T#1000NS', 'T#1D', 'T#2H', 'T#30M', 'T#45S'];
+      for (let i = 0; i < validLiterals.length; i++) {
+        const result = tokenize(validLiterals[i]!);
         expect(result.errors).toHaveLength(0);
         expect(result.tokens).toHaveLength(1);
         expect(result.tokens[0]?.tokenType.name).toBe('TimeLiteral');
-        expect(result.tokens[0]?.image).toBe(literal);
+        expect(result.tokens[0]?.image).toBe(expectedImages[i]);
       }
     });
 
@@ -248,7 +249,7 @@ describe('STLexer', () => {
       expect(result.errors).toHaveLength(0);
       expect(result.tokens).toHaveLength(1);
       expect(result.tokens[0]?.tokenType.name).toBe('TimeLiteral');
-      expect(result.tokens[0]?.image).toBe('T#1h2m3s');
+      expect(result.tokens[0]?.image).toBe('T#1H2M3S');
     });
 
     it('should tokenize TIME# prefix', () => {
@@ -317,7 +318,7 @@ describe('STLexer', () => {
         expect(result.errors).toHaveLength(0);
         expect(result.tokens).toHaveLength(1);
         expect(result.tokens[0]?.tokenType.name).toBe('ExternalPragma');
-        expect(result.tokens[0]?.image).toBe('{external printf("hello"); }');
+        expect(result.tokens[0]?.image).toBe('{EXTERNAL printf("hello"); }');
       });
 
       it('should tokenize external pragma with nested braces', () => {
@@ -325,7 +326,7 @@ describe('STLexer', () => {
         expect(result.errors).toHaveLength(0);
         expect(result.tokens).toHaveLength(1);
         expect(result.tokens[0]?.tokenType.name).toBe('ExternalPragma');
-        expect(result.tokens[0]?.image).toBe('{external if (x > 0) { y = x; } }');
+        expect(result.tokens[0]?.image).toBe('{EXTERNAL if (x > 0) { y = x; } }');
       });
 
       it('should tokenize external pragma with deeply nested braces', () => {
@@ -579,5 +580,67 @@ describe('STLexer', () => {
         expect(result.tokens.filter(t => t.tokenType.name === 'END_PROGRAM')).toHaveLength(1);
       });
     });
+  });
+});
+
+describe('uppercaseSource', () => {
+  it('should uppercase basic identifiers', () => {
+    expect(uppercaseSource('hello WORLD')).toBe('HELLO WORLD');
+  });
+
+  it('should preserve single-quoted string literals', () => {
+    expect(uppercaseSource("VAR x := 'Hello World';")).toBe("VAR X := 'Hello World';");
+  });
+
+  it('should preserve dollar escapes in strings', () => {
+    expect(uppercaseSource("x := 'text$Nmore';")).toBe("X := 'text$Nmore';");
+  });
+
+  it('should preserve doubled single-quote escapes', () => {
+    expect(uppercaseSource("x := 'it''s';")).toBe("X := 'it''s';");
+  });
+
+  it('should preserve double-quoted wide string literals', () => {
+    expect(uppercaseSource('x := "Hello"')).toBe('X := "Hello"');
+  });
+
+  it('should preserve block comment content but uppercase surrounding code', () => {
+    expect(uppercaseSource('x (* Comment *) y')).toBe('X (* Comment *) Y');
+  });
+
+  it('should handle nested block comments', () => {
+    expect(uppercaseSource('a (* outer (* inner *) *) b')).toBe('A (* outer (* inner *) *) B');
+  });
+
+  it('should preserve line comment content but uppercase code before it', () => {
+    expect(uppercaseSource('x // comment\ny')).toBe('X // comment\nY');
+  });
+
+  it('should handle line comment at EOF without newline', () => {
+    expect(uppercaseSource('x // tail')).toBe('X // tail');
+  });
+
+  it('should uppercase external pragma keyword but preserve body', () => {
+    expect(uppercaseSource('{external int x = 0; }')).toBe('{EXTERNAL int x = 0; }');
+  });
+
+  it('should handle external pragma with nested braces', () => {
+    expect(uppercaseSource('{external if(x) { y=1; } }')).toBe('{EXTERNAL if(x) { y=1; } }');
+  });
+
+  it('should handle external pragma with string containing closing brace', () => {
+    expect(uppercaseSource('{external printf("}"); }')).toBe('{EXTERNAL printf("}"); }');
+  });
+
+  it('should uppercase non-external brace content normally', () => {
+    expect(uppercaseSource('{notexternal}')).toBe('{NOTEXTERNAL}');
+  });
+
+  it('should handle empty input', () => {
+    expect(uppercaseSource('')).toBe('');
+  });
+
+  it('should preserve strings that contain comment syntax', () => {
+    expect(uppercaseSource("x := '(* not a comment *)';")).toBe("X := '(* not a comment *)';");
   });
 });

@@ -343,6 +343,9 @@ export const DREF = createToken({ name: "DREF", pattern: /DREF/i });
 export const REF = createToken({ name: "REF", pattern: /REF/i });
 export const NULL = createToken({ name: "NULL", pattern: /NULL/i });
 
+// Pointer type (CODESYS compatibility)
+export const POINTER = createToken({ name: "POINTER", pattern: /POINTER/i });
+
 // Dynamic memory (extension keywords)
 export const __NEW = createToken({ name: "__NEW", pattern: /__NEW/i });
 export const __DELETE = createToken({ name: "__DELETE", pattern: /__DELETE/i });
@@ -476,7 +479,7 @@ export const VAR_INST = createToken({
 // Longer suffixes (ms, us, ns) must come before shorter ones (m, s) in the alternation
 export const TimeLiteral = createToken({
   name: "TimeLiteral",
-  pattern: /(?:T|TIME)#(?:[0-9_]+(?:ms|us|ns|d|h|m|s))+/i,
+  pattern: /(?:T|TIME)#(?:[0-9_]+(?:\.[0-9_]+)?(?:ms|us|ns|d|h|m|s))+/i,
 });
 
 // Date literal: D#2024-01-15
@@ -488,7 +491,7 @@ export const DateLiteral = createToken({
 // Time of day literal: TOD#12:30:00
 export const TimeOfDayLiteral = createToken({
   name: "TimeOfDayLiteral",
-  pattern: /(?:TOD|TIME_OF_DAY)#[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?/i,
+  pattern: /(?:TOD|TIME_OF_DAY)#[0-9]{2}:[0-9]{2}(?::[0-9]{2}(?:\.[0-9]+)?)?/i,
 });
 
 // Date and time literal: DT#2024-01-15-12:30:00
@@ -496,6 +499,14 @@ export const DateTimeLiteral = createToken({
   name: "DateTimeLiteral",
   pattern:
     /(?:DT|DATE_AND_TIME)#[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?/i,
+});
+
+// Typed literal: BYTE#255, DWORD#16#FF, INT#0, BOOL#1, REAL#1.5E10, etc.
+// Must be before keyword tokens and RealLiteral/IntegerLiteral so that BYTE#255 isn't split
+export const TypedLiteral = createToken({
+  name: "TypedLiteral",
+  pattern:
+    /(?:BYTE|WORD|DWORD|LWORD|SINT|INT|DINT|LINT|USINT|UINT|UDINT|ULINT|BOOL|REAL|LREAL)#(?:16#[0-9A-Fa-f_]+|8#[0-7_]+|2#[01_]+|[0-9][0-9_]*(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)/i,
 });
 
 // Real number literal: 3.14, 1.0e-10
@@ -673,6 +684,7 @@ const keywordTokens = [
   MOD,
   REFERENCE_TO,
   REF_TO,
+  POINTER,
   DREF,
   REF,
   NULL,
@@ -731,6 +743,13 @@ export const allTokens = [
   NotEqual,
   LessEqual,
   GreaterEqual,
+
+  // Typed and time/date literals (before keywords — BYTE#255, TOD#12:00 must not split)
+  TimeLiteral,
+  DateTimeLiteral,
+  DateLiteral,
+  TimeOfDayLiteral,
+  TypedLiteral,
 
   // Keywords (before Identifier)
   END_PROGRAM,
@@ -792,6 +811,7 @@ export const allTokens = [
   MOD,
   REFERENCE_TO,
   REF_TO,
+  POINTER,
   DREF,
   REF,
   NULL,
@@ -819,10 +839,6 @@ export const allTokens = [
   PROTECTED,
 
   // Literals
-  TimeLiteral,
-  DateTimeLiteral,
-  DateLiteral,
-  TimeOfDayLiteral,
   RealLiteral,
   IntegerLiteral,
   StringLiteral,
@@ -956,16 +972,205 @@ function findUnclosedBlockComment(
 }
 
 /**
+ * Uppercase ST source while preserving case inside string literals,
+ * wide string literals, block comments, and line comments.
+ * IEC 61131-3 is case-insensitive, so this normalizes identifiers/keywords.
+ */
+export function uppercaseSource(source: string): string {
+  const len = source.length;
+  const out: string[] = new Array<string>(len);
+  let i = 0;
+
+  // Helper to get char at position (always valid when i < len)
+  const at = (pos: number): string => source.charAt(pos);
+
+  while (i < len) {
+    const ch = at(i);
+
+    // Single-quoted string literal: preserve case
+    if (ch === "'") {
+      out[i] = ch;
+      i++;
+      while (i < len) {
+        const sc = at(i);
+        if (sc === "$" && i + 1 < len) {
+          out[i] = sc;
+          out[i + 1] = at(i + 1);
+          i += 2;
+          continue;
+        }
+        if (sc === "'" && i + 1 < len && at(i + 1) === "'") {
+          out[i] = sc;
+          out[i + 1] = "'";
+          i += 2;
+          continue;
+        }
+        out[i] = sc;
+        if (sc === "'") {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+
+    // Double-quoted wide string literal: preserve case
+    if (ch === '"') {
+      out[i] = ch;
+      i++;
+      while (i < len) {
+        const sc = at(i);
+        if (sc === "$" && i + 1 < len) {
+          out[i] = sc;
+          out[i + 1] = at(i + 1);
+          i += 2;
+          continue;
+        }
+        out[i] = sc;
+        if (sc === '"') {
+          i++;
+          break;
+        }
+        i++;
+      }
+      continue;
+    }
+
+    // Block comment (* ... *): preserve case, nesting supported
+    if (ch === "(" && i + 1 < len && at(i + 1) === "*") {
+      let depth = 1;
+      out[i] = ch;
+      out[i + 1] = "*";
+      i += 2;
+      while (i < len && depth > 0) {
+        const c = at(i);
+        if (c === "(" && i + 1 < len && at(i + 1) === "*") {
+          out[i] = c;
+          out[i + 1] = "*";
+          i += 2;
+          depth++;
+        } else if (c === "*" && i + 1 < len && at(i + 1) === ")") {
+          out[i] = c;
+          out[i + 1] = ")";
+          i += 2;
+          depth--;
+        } else {
+          out[i] = c;
+          i++;
+        }
+      }
+      continue;
+    }
+
+    // Line comment // ... : preserve case
+    if (ch === "/" && i + 1 < len && at(i + 1) === "/") {
+      while (i < len && at(i) !== "\n") {
+        out[i] = at(i);
+        i++;
+      }
+      continue;
+    }
+
+    // External code pragma {external ...}: uppercase the tag, preserve body
+    if (ch === "{") {
+      // Skip whitespace after {
+      let probe = i + 1;
+      while (probe < len && /\s/.test(at(probe))) probe++;
+      const keyword = source.substring(probe, probe + 8);
+      if (keyword.toLowerCase() === "external") {
+        // Found {external ...} — preserve body as-is except uppercase the opening keyword
+        out[i] = "{";
+        i++;
+        // Copy whitespace
+        while (i < probe) {
+          out[i] = at(i);
+          i++;
+        }
+        // Uppercase "external"
+        for (let k = 0; k < 8 && i < len; k++, i++) {
+          out[i] = at(i).toUpperCase();
+        }
+        // Now preserve everything else until matching }, counting nested braces
+        let depth = 1;
+        while (i < len && depth > 0) {
+          const pc = at(i);
+          // Handle string literals inside external code
+          if (pc === '"' || pc === "'") {
+            out[i] = pc;
+            i++;
+            while (i < len && at(i) !== pc) {
+              if (at(i) === "\\") {
+                out[i] = at(i);
+                i++;
+              }
+              if (i < len) {
+                out[i] = at(i);
+                i++;
+              }
+            }
+            if (i < len) {
+              out[i] = at(i);
+              i++;
+            }
+            continue;
+          }
+          // Handle C++ line comments inside external code
+          if (pc === "/" && i + 1 < len && at(i + 1) === "/") {
+            while (i < len && at(i) !== "\n") {
+              out[i] = at(i);
+              i++;
+            }
+            continue;
+          }
+          // Handle C++ block comments inside external code
+          if (pc === "/" && i + 1 < len && at(i + 1) === "*") {
+            out[i] = at(i);
+            out[i + 1] = at(i + 1);
+            i += 2;
+            while (i < len - 1) {
+              if (at(i) === "*" && at(i + 1) === "/") {
+                out[i] = at(i);
+                out[i + 1] = at(i + 1);
+                i += 2;
+                break;
+              }
+              out[i] = at(i);
+              i++;
+            }
+            continue;
+          }
+          if (pc === "{") depth++;
+          else if (pc === "}") depth--;
+          out[i] = at(i);
+          i++;
+        }
+        continue;
+      }
+    }
+
+    // Everything else: uppercase
+    out[i] = ch.toUpperCase();
+    i++;
+  }
+
+  return out.join("");
+}
+
+/**
  * Tokenize ST source code.
  *
  * @param source - The ST source code to tokenize
  * @returns Lexer result with tokens and any lexing errors
  */
 export function tokenize(source: string): ReturnType<typeof STLexer.tokenize> {
-  // Check for unclosed block comments first
-  const unclosedComment = findUnclosedBlockComment(source);
+  // Normalize to uppercase for case-insensitive matching (preserves string/comment contents)
+  const upperSource = uppercaseSource(source);
 
-  const result = STLexer.tokenize(source);
+  // Check for unclosed block comments first
+  const unclosedComment = findUnclosedBlockComment(upperSource);
+
+  const result = STLexer.tokenize(upperSource);
 
   if (unclosedComment) {
     result.errors.push({
@@ -990,9 +1195,12 @@ export function tokenize(source: string): ReturnType<typeof STLexer.tokenize> {
 export function tokenizeTest(
   source: string,
 ): ReturnType<typeof TestLexer.tokenize> {
-  const unclosedComment = findUnclosedBlockComment(source);
+  // Normalize to uppercase for case-insensitive matching (preserves string/comment contents)
+  const upperSource = uppercaseSource(source);
 
-  const result = TestLexer.tokenize(source);
+  const unclosedComment = findUnclosedBlockComment(upperSource);
+
+  const result = TestLexer.tokenize(upperSource);
 
   if (unclosedComment) {
     result.errors.push({

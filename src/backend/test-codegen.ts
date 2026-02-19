@@ -51,6 +51,7 @@ export class TestCodeGenerator extends CodeGenerator {
    * struct/interface/FB types.
    */
   initFromAST(ast: CompilationUnit): void {
+    this.ast = ast;
     for (const fb of ast.functionBlocks) {
       this.knownFBTypes.add(fb.name.toUpperCase());
       for (const method of fb.methods) {
@@ -118,6 +119,40 @@ export class TestCodeGenerator extends CodeGenerator {
     }
   }
 
+  /**
+   * Resolve a dot-separated member access path, applying name mangling
+   * where a member name collides with its type name in a class context.
+   * E.g., ["CTRL", "SENSOR"] → "CTRL.SENSOR_" when SENSOR is type Sensor in Controller.
+   */
+  resolveMemberPath(path: string[], prefix: string): string {
+    if (path.length === 0) return prefix;
+    const parts: string[] = [];
+    // First element is the root variable
+    const rootName = path[0]!;
+    parts.push(prefix + rootName);
+    let currentType = this.currentScopeVarTypes.get(rootName.toUpperCase());
+
+    for (let i = 1; i < path.length; i++) {
+      const field = path[i]!;
+      if (currentType && this.ast) {
+        const memberType = this.resolveMemberType(currentType, field);
+        if (
+          memberType &&
+          this.isUserDefinedType(memberType) &&
+          field.toUpperCase() === memberType.toUpperCase()
+        ) {
+          parts.push(`${field}_`);
+        } else {
+          parts.push(field);
+        }
+        currentType = memberType;
+      } else {
+        parts.push(field);
+      }
+    }
+    return parts.join(".");
+  }
+
   /** Generate a C++ expression string from an AST Expression. */
   emitExpression(expr: Expression): string {
     return this.generateExpression(expr);
@@ -151,7 +186,10 @@ export class TestCodeGenerator extends CodeGenerator {
     if (pou) {
       return pou.cppClassName;
     }
-    return this.mapVarTypeToCpp(name, maxLength);
+    return this.mapVarTypeToCpp(
+      name,
+      typeof maxLength === "number" ? maxLength : undefined,
+    );
   }
 
   // --- Hook overrides ---

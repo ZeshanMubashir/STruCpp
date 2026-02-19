@@ -10,6 +10,7 @@ import type {
   ElementaryType,
   Expression,
   FunctionBlockDeclaration,
+  FunctionCallExpression,
   MethodDeclaration,
   VarBlock,
   VarDeclaration,
@@ -17,6 +18,7 @@ import type {
   Visibility,
 } from "../frontend/ast.js";
 import type { CompileError } from "../types.js";
+import { StdFunctionRegistry } from "./std-function-registry.js";
 import { SymbolTables } from "./symbol-table.js";
 import { TypeChecker } from "./type-checker.js";
 
@@ -134,6 +136,7 @@ interface LocatedVarInfo {
 export class SemanticAnalyzer {
   private symbolTables: SymbolTables;
   private typeChecker: TypeChecker;
+  private stdRegistry = new StdFunctionRegistry();
   private errors: CompileError[] = [];
   private warnings: CompileError[] = [];
 
@@ -417,6 +420,9 @@ export class SemanticAnalyzer {
     // Validate access modifier enforcement
     this.validateAccessModifiers(ast);
 
+    // Validate bit access bounds and ADR l-value targets
+    this.validateExpressions(ast);
+
     // TODO: Implement additional semantic validation in Phase 3+
     // - Check that variables are declared before use
     // - Validate array bounds
@@ -604,15 +610,17 @@ export class SemanticAnalyzer {
 
     // CONSTANT validation
     if (block.isConstant) {
-      // CONSTANT requires initializer
-      for (const decl of block.declarations) {
-        if (!decl.initialValue) {
-          const names = decl.names.join(", ");
-          this.addError(
-            `CONSTANT variable '${names}' must have an initializer`,
-            decl.sourceSpan.startLine,
-            decl.sourceSpan.startCol,
-          );
+      // CONSTANT requires initializer (except VAR_INPUT CONSTANT — caller provides value)
+      if (blockType !== "VAR_INPUT") {
+        for (const decl of block.declarations) {
+          if (!decl.initialValue) {
+            const names = decl.names.join(", ");
+            this.addError(
+              `CONSTANT variable '${names}' must have an initializer`,
+              decl.sourceSpan.startLine,
+              decl.sourceSpan.startCol,
+            );
+          }
         }
       }
 
@@ -1135,6 +1143,385 @@ export class SemanticAnalyzer {
         propertyInfo,
       );
     }
+  }
+
+  // =============================================================================
+  // Bit Access & ADR Expression Validation
+  // =============================================================================
+
+  /** Bit widths for IEC types that support bit access. */
+  private static readonly IEC_TYPE_BITS: Record<string, number> = {
+    BOOL: 1,
+    BYTE: 8,
+    WORD: 16,
+    DWORD: 32,
+    LWORD: 64,
+    SINT: 8,
+    INT: 16,
+    DINT: 32,
+    LINT: 64,
+    USINT: 8,
+    UINT: 16,
+    UDINT: 32,
+    ULINT: 64,
+  };
+
+  /**
+   * Validate expressions across all programs, functions, and FBs.
+   * Checks std function argument counts, bit access bounds, and ADR l-value targets.
+   */
+  private validateExpressions(ast: CompilationUnit): void {
+    for (const prog of ast.programs) {
+      const varTypeMap = this.buildVarTypeMap(prog.varBlocks);
+      this.walkStatementsForExpressionValidation(prog.body, varTypeMap, ast);
+    }
+    for (const func of ast.functions) {
+      const varTypeMap = this.buildVarTypeMap(func.varBlocks);
+      this.walkStatementsForExpressionValidation(func.body, varTypeMap, ast);
+    }
+    for (const fb of ast.functionBlocks) {
+      const varTypeMap = this.buildVarTypeMap(fb.varBlocks);
+      this.walkStatementsForExpressionValidation(fb.body, varTypeMap, ast);
+      for (const method of fb.methods) {
+        const methodVarTypeMap = this.buildVarTypeMap(method.varBlocks);
+        // Merge FB vars into method scope (method can access FB members)
+        for (const [k, v] of varTypeMap) {
+          if (!methodVarTypeMap.has(k)) methodVarTypeMap.set(k, v);
+        }
+        this.walkStatementsForExpressionValidation(
+          method.body,
+          methodVarTypeMap,
+          ast,
+        );
+      }
+    }
+  }
+
+  /**
+   * Walk statements checking expressions for bit access bounds and ADR l-value issues.
+   */
+  private walkStatementsForExpressionValidation(
+    stmts: Statement[],
+    varTypeMap: Map<string, string>,
+    ast: CompilationUnit,
+  ): void {
+    for (const stmt of stmts) {
+      // Check expressions in assignments
+      if (stmt.kind === "AssignmentStatement") {
+        this.validateExpression(stmt.target, varTypeMap, ast);
+        this.validateExpression(stmt.value, varTypeMap, ast);
+      } else if (stmt.kind === "RefAssignStatement") {
+        this.validateExpression(stmt.target, varTypeMap, ast);
+        this.validateExpression(stmt.source, varTypeMap, ast);
+      } else if (stmt.kind === "FunctionCallStatement") {
+        this.validateExpression(stmt.call, varTypeMap, ast);
+      }
+      // Recurse into control flow
+      this.recurseStatementsForExpressionValidation(stmt, varTypeMap, ast);
+    }
+  }
+
+  /**
+   * Recurse into control flow statements for expression validation.
+   */
+  private recurseStatementsForExpressionValidation(
+    stmt: Statement,
+    varTypeMap: Map<string, string>,
+    ast: CompilationUnit,
+  ): void {
+    if (stmt.kind === "IfStatement") {
+      this.validateExpression(stmt.condition, varTypeMap, ast);
+      this.walkStatementsForExpressionValidation(
+        stmt.thenStatements,
+        varTypeMap,
+        ast,
+      );
+      for (const clause of stmt.elsifClauses) {
+        this.validateExpression(clause.condition, varTypeMap, ast);
+        this.walkStatementsForExpressionValidation(
+          clause.statements,
+          varTypeMap,
+          ast,
+        );
+      }
+      this.walkStatementsForExpressionValidation(
+        stmt.elseStatements,
+        varTypeMap,
+        ast,
+      );
+    } else if (stmt.kind === "ForStatement") {
+      this.validateExpression(stmt.start, varTypeMap, ast);
+      this.validateExpression(stmt.end, varTypeMap, ast);
+      if (stmt.step) this.validateExpression(stmt.step, varTypeMap, ast);
+      this.walkStatementsForExpressionValidation(stmt.body, varTypeMap, ast);
+    } else if (stmt.kind === "WhileStatement") {
+      this.validateExpression(stmt.condition, varTypeMap, ast);
+      this.walkStatementsForExpressionValidation(stmt.body, varTypeMap, ast);
+    } else if (stmt.kind === "RepeatStatement") {
+      this.walkStatementsForExpressionValidation(stmt.body, varTypeMap, ast);
+      this.validateExpression(stmt.condition, varTypeMap, ast);
+    } else if (stmt.kind === "CaseStatement") {
+      this.validateExpression(stmt.selector, varTypeMap, ast);
+      for (const c of stmt.cases) {
+        this.walkStatementsForExpressionValidation(
+          c.statements,
+          varTypeMap,
+          ast,
+        );
+      }
+      this.walkStatementsForExpressionValidation(
+        stmt.elseStatements,
+        varTypeMap,
+        ast,
+      );
+    }
+  }
+
+  /**
+   * Validate a single expression recursively for std function args, bit access, and ADR issues.
+   */
+  private validateExpression(
+    expr: Expression,
+    varTypeMap: Map<string, string>,
+    ast: CompilationUnit,
+  ): void {
+    // Check bit access bounds on variable expressions
+    if (expr.kind === "VariableExpression") {
+      this.checkBitAccess(expr, varTypeMap, ast, expr.subscripts.length > 0);
+    }
+
+    // Validate standard function argument counts and ADR l-value requirement
+    if (
+      expr.kind === "FunctionCallExpression" &&
+      !expr.functionName.includes(".")
+    ) {
+      this.checkStdFunctionArgs(expr);
+    }
+
+    // Recurse into sub-expressions
+    if (expr.kind === "BinaryExpression") {
+      this.validateExpression(expr.left, varTypeMap, ast);
+      this.validateExpression(expr.right, varTypeMap, ast);
+    } else if (expr.kind === "UnaryExpression") {
+      this.validateExpression(expr.operand, varTypeMap, ast);
+    } else if (expr.kind === "FunctionCallExpression") {
+      for (const arg of expr.arguments) {
+        this.validateExpression(arg.value, varTypeMap, ast);
+      }
+    } else if (expr.kind === "MethodCallExpression") {
+      this.validateExpression(expr.object, varTypeMap, ast);
+      for (const arg of expr.arguments) {
+        this.validateExpression(arg.value, varTypeMap, ast);
+      }
+    } else if (expr.kind === "ParenthesizedExpression") {
+      this.validateExpression(expr.expression, varTypeMap, ast);
+    }
+  }
+
+  /**
+   * Check if an expression is a valid l-value (can have its address taken).
+   */
+  private isLValue(expr: Expression): boolean {
+    return (
+      expr.kind === "VariableExpression" ||
+      (expr.kind === "ParenthesizedExpression" &&
+        this.isLValue(expr.expression))
+    );
+  }
+
+  /**
+   * Validate standard function argument counts and special constraints (e.g., ADR l-value).
+   * Covers all registered std functions and *_TO_* conversion functions.
+   */
+  private checkStdFunctionArgs(expr: FunctionCallExpression): void {
+    const nameUpper = expr.functionName.toUpperCase();
+    const argCount = expr.arguments.length;
+
+    // Look up in std function registry
+    const desc = this.stdRegistry.lookup(nameUpper);
+    if (desc) {
+      if (desc.isVariadic) {
+        const minArgs = desc.minArgs ?? desc.params.length;
+        if (argCount < minArgs) {
+          this.addError(
+            `'${nameUpper}' requires at least ${minArgs} argument(s), got ${argCount}`,
+            expr.sourceSpan.startLine,
+            expr.sourceSpan.startCol,
+          );
+        }
+      } else {
+        const expected = desc.params.length;
+        if (argCount !== expected) {
+          this.addError(
+            `'${nameUpper}' requires ${expected} argument(s), got ${argCount}`,
+            expr.sourceSpan.startLine,
+            expr.sourceSpan.startCol,
+          );
+        }
+      }
+    } else if (this.stdRegistry.resolveConversion(nameUpper)) {
+      // *_TO_* conversion functions always take exactly 1 argument
+      if (argCount !== 1) {
+        this.addError(
+          `'${nameUpper}' requires 1 argument, got ${argCount}`,
+          expr.sourceSpan.startLine,
+          expr.sourceSpan.startCol,
+        );
+      }
+    }
+
+    // Additional ADR constraint: argument must be an l-value
+    if (nameUpper === "ADR" && argCount > 0) {
+      const arg = expr.arguments[0]!.value;
+      if (!this.isLValue(arg)) {
+        this.addError(
+          "ADR() requires a variable reference, not an expression",
+          expr.sourceSpan.startLine,
+          expr.sourceSpan.startCol,
+        );
+      }
+    }
+  }
+
+  /**
+   * Check bit access bounds on a variable expression.
+   * Detects patterns like `var.31` where 31 exceeds the bit width of var's type.
+   */
+  private checkBitAccess(
+    expr: {
+      name: string;
+      fieldAccess: string[];
+      sourceSpan: { startLine: number; startCol: number };
+    },
+    varTypeMap: Map<string, string>,
+    ast: CompilationUnit,
+    hasSubscripts: boolean,
+  ): void {
+    if (expr.fieldAccess.length === 0) return;
+
+    // Find the first numeric field access (bit index)
+    for (let i = 0; i < expr.fieldAccess.length; i++) {
+      const field = expr.fieldAccess[i]!;
+      if (!/^\d+$/.test(field)) continue;
+
+      const bitIndex = parseInt(field, 10);
+
+      // Resolve the type of the field chain up to (but not including) the bit index
+      let typeName = varTypeMap.get(expr.name.toUpperCase());
+      if (!typeName) return;
+
+      // If the variable has subscripts (array indexing), resolve to the element type
+      if (i === 0 && hasSubscripts) {
+        const elemType = this.resolveArrayElementType(typeName, ast);
+        if (elemType) {
+          typeName = elemType;
+        } else {
+          return; // Can't resolve element type — skip validation
+        }
+      }
+
+      // Walk intermediate fields to resolve the type
+      for (let j = 0; j < i; j++) {
+        const intermediateField = expr.fieldAccess[j]!;
+        if (/^\d+$/.test(intermediateField)) return; // Earlier bit access — skip
+        typeName = this.resolveStructFieldType(
+          typeName,
+          intermediateField,
+          ast,
+        );
+        if (!typeName) return;
+      }
+
+      const typeUpper = typeName.toUpperCase();
+      const bits = SemanticAnalyzer.IEC_TYPE_BITS[typeUpper];
+      if (bits === undefined) {
+        // Type doesn't support bit access (REAL, STRING, user-defined, etc.)
+        this.addError(
+          `Bit access is not valid on type ${typeName}`,
+          expr.sourceSpan.startLine,
+          expr.sourceSpan.startCol,
+        );
+        return;
+      }
+      if (bitIndex >= bits) {
+        this.addError(
+          `Bit index ${bitIndex} is out of range for type ${typeName} (0..${bits - 1})`,
+          expr.sourceSpan.startLine,
+          expr.sourceSpan.startCol,
+        );
+      }
+      return; // Only check the first bit access
+    }
+  }
+
+  /**
+   * Resolve the type of a struct field by looking up the type definition in the AST.
+   */
+  private resolveStructFieldType(
+    typeName: string,
+    fieldName: string,
+    ast: CompilationUnit,
+  ): string | undefined {
+    const typeUpper = typeName.toUpperCase();
+    const fieldUpper = fieldName.toUpperCase();
+
+    // Check struct type definitions
+    for (const td of ast.types) {
+      if (
+        td.name.toUpperCase() === typeUpper &&
+        td.definition.kind === "StructDefinition"
+      ) {
+        for (const field of td.definition.fields) {
+          for (const name of field.names) {
+            if (name.toUpperCase() === fieldUpper) return field.type.name;
+          }
+        }
+      }
+    }
+
+    // Check FB var blocks (FB instance member access)
+    for (const fb of ast.functionBlocks) {
+      if (fb.name.toUpperCase() === typeUpper) {
+        for (const block of fb.varBlocks) {
+          for (const decl of block.declarations) {
+            for (const name of decl.names) {
+              if (name.toUpperCase() === fieldUpper) return decl.type.name;
+            }
+          }
+        }
+        return undefined;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Resolve the element type of an array type.
+   * Handles __INLINE_ARRAY_* internal types and user-defined array TYPE definitions.
+   */
+  private resolveArrayElementType(
+    typeName: string,
+    ast: CompilationUnit,
+  ): string | undefined {
+    const typeUpper = typeName.toUpperCase();
+
+    // Handle __INLINE_ARRAY_<ElementType> internal types
+    if (typeUpper.startsWith("__INLINE_ARRAY_")) {
+      return typeUpper.substring("__INLINE_ARRAY_".length);
+    }
+
+    // Check user-defined array type definitions
+    for (const td of ast.types) {
+      if (
+        td.name.toUpperCase() === typeUpper &&
+        td.definition.kind === "ArrayDefinition"
+      ) {
+        return td.definition.elementType.name.toUpperCase();
+      }
+    }
+
+    return undefined;
   }
 
   /**
