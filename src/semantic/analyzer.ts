@@ -12,6 +12,8 @@ import type {
   FunctionBlockDeclaration,
   FunctionCallExpression,
   MethodDeclaration,
+  TypeDefinition,
+  TypeReference,
   VarBlock,
   VarDeclaration,
   Statement,
@@ -286,6 +288,32 @@ export class SemanticAnalyzer {
       }
     }
 
+    // Register interface declarations as types (so they can be used in IMPLEMENTS and var types)
+    for (const ifaceDecl of ast.interfaces) {
+      try {
+        const resolvedType: ElementaryType = {
+          typeKind: "elementary",
+          name: ifaceDecl.name,
+          sizeBits: 0,
+        };
+        this.symbolTables.globalScope.define({
+          name: ifaceDecl.name,
+          kind: "type",
+          declaration:
+            undefined as unknown as import("../frontend/ast.js").TypeDeclaration,
+          resolvedType,
+        });
+      } catch (err) {
+        if (err instanceof Error) {
+          this.addError(
+            err.message,
+            ifaceDecl.sourceSpan.startLine,
+            ifaceDecl.sourceSpan.startCol,
+          );
+        }
+      }
+    }
+
     // Register program declarations
     for (const progDecl of ast.programs) {
       try {
@@ -399,6 +427,9 @@ export class SemanticAnalyzer {
    * Validate IEC 61131-3 semantic rules.
    */
   private validateSemantics(ast: CompilationUnit): void {
+    // Validate type references (must come first — other validations assume types exist)
+    this.validateTypeReferences(ast);
+
     // Validate located variables
     this.validateLocatedVariables();
 
@@ -1950,6 +1981,207 @@ export class SemanticAnalyzer {
         callerFB,
         getAncestors,
       );
+    }
+  }
+
+  // =============================================================================
+  // Undefined Type Validation
+  // =============================================================================
+
+  /**
+   * Check if a type name is known (registered in symbol tables or a synthetic internal type).
+   */
+  private isKnownType(name: string): boolean {
+    const upper = name.toUpperCase();
+    // Whitelist synthetic internal types
+    if (upper.startsWith("__VLA_") || upper.startsWith("__INLINE_ARRAY_")) {
+      return true;
+    }
+    const sym = this.symbolTables.globalScope.lookup(upper);
+    if (!sym) return false;
+    return (
+      sym.kind === "type" ||
+      sym.kind === "functionBlock" ||
+      sym.kind === "program"
+    );
+  }
+
+  /**
+   * Validate a single TypeReference node. Reports an error if the referenced type is unknown.
+   */
+  private validateSingleTypeReference(
+    typeRef: TypeReference,
+    context: string,
+  ): void {
+    // Skip empty or VOID type names
+    if (!typeRef.name || typeRef.name.toUpperCase() === "VOID") return;
+
+    // For inline arrays, validate the element type instead
+    const nameToCheck = typeRef.elementTypeName ?? typeRef.name;
+
+    if (!this.isKnownType(nameToCheck)) {
+      this.addError(
+        `Undefined type '${nameToCheck}'${context ? " in " + context : ""}`,
+        typeRef.sourceSpan.startLine,
+        typeRef.sourceSpan.startCol,
+      );
+    }
+  }
+
+  /**
+   * Validate all type references in the AST.
+   * Walks variable declarations, return types, EXTENDS/IMPLEMENTS clauses,
+   * method parameters, properties, global var blocks, and type definitions.
+   */
+  private validateTypeReferences(ast: CompilationUnit): void {
+    // Helper to validate var blocks
+    const validateVarBlocks = (varBlocks: VarBlock[], context: string) => {
+      for (const block of varBlocks) {
+        for (const decl of block.declarations) {
+          this.validateSingleTypeReference(decl.type, context);
+        }
+      }
+    };
+
+    // Programs
+    for (const prog of ast.programs) {
+      validateVarBlocks(prog.varBlocks, `PROGRAM '${prog.name}'`);
+    }
+
+    // Functions — var blocks + return type
+    for (const func of ast.functions) {
+      validateVarBlocks(func.varBlocks, `FUNCTION '${func.name}'`);
+      this.validateSingleTypeReference(
+        func.returnType,
+        `FUNCTION '${func.name}' return type`,
+      );
+    }
+
+    // Function blocks — var blocks, methods, properties, EXTENDS, IMPLEMENTS
+    for (const fb of ast.functionBlocks) {
+      validateVarBlocks(fb.varBlocks, `FUNCTION_BLOCK '${fb.name}'`);
+
+      // EXTENDS clause
+      if (fb.extends) {
+        if (!this.isKnownType(fb.extends)) {
+          this.addError(
+            `Undefined type '${fb.extends}' in EXTENDS clause of FUNCTION_BLOCK '${fb.name}'`,
+            fb.sourceSpan.startLine,
+            fb.sourceSpan.startCol,
+          );
+        }
+      }
+
+      // IMPLEMENTS clause
+      if (fb.implements) {
+        for (const ifaceName of fb.implements) {
+          if (!this.isKnownType(ifaceName)) {
+            this.addError(
+              `Undefined type '${ifaceName}' in IMPLEMENTS clause of FUNCTION_BLOCK '${fb.name}'`,
+              fb.sourceSpan.startLine,
+              fb.sourceSpan.startCol,
+            );
+          }
+        }
+      }
+
+      // Methods — return type + var blocks (parameters)
+      for (const method of fb.methods) {
+        if (method.returnType) {
+          this.validateSingleTypeReference(
+            method.returnType,
+            `METHOD '${method.name}' of '${fb.name}' return type`,
+          );
+        }
+        validateVarBlocks(
+          method.varBlocks,
+          `METHOD '${method.name}' of '${fb.name}'`,
+        );
+      }
+
+      // Properties
+      for (const prop of fb.properties) {
+        this.validateSingleTypeReference(
+          prop.type,
+          `PROPERTY '${prop.name}' of '${fb.name}'`,
+        );
+      }
+    }
+
+    // Interfaces — methods (return type + parameters), EXTENDS
+    for (const iface of ast.interfaces) {
+      if (iface.extends) {
+        for (const baseName of iface.extends) {
+          if (!this.isKnownType(baseName)) {
+            this.addError(
+              `Undefined type '${baseName}' in EXTENDS clause of INTERFACE '${iface.name}'`,
+              iface.sourceSpan.startLine,
+              iface.sourceSpan.startCol,
+            );
+          }
+        }
+      }
+      for (const method of iface.methods) {
+        if (method.returnType) {
+          this.validateSingleTypeReference(
+            method.returnType,
+            `METHOD '${method.name}' of INTERFACE '${iface.name}' return type`,
+          );
+        }
+        validateVarBlocks(
+          method.varBlocks,
+          `METHOD '${method.name}' of INTERFACE '${iface.name}'`,
+        );
+      }
+    }
+
+    // Global var blocks
+    for (const block of ast.globalVarBlocks) {
+      for (const decl of block.declarations) {
+        this.validateSingleTypeReference(decl.type, "VAR_GLOBAL");
+      }
+    }
+
+    // Type definitions (struct fields, array element types, subrange base types, etc.)
+    for (const typeDecl of ast.types) {
+      this.validateTypeDefinitionReferences(typeDecl.name, typeDecl.definition);
+    }
+  }
+
+  /**
+   * Validate type references within a type definition (struct fields, array elements, etc.).
+   */
+  private validateTypeDefinitionReferences(
+    typeName: string,
+    def: TypeDefinition,
+  ): void {
+    switch (def.kind) {
+      case "StructDefinition":
+        for (const field of def.fields) {
+          this.validateSingleTypeReference(field.type, `STRUCT '${typeName}'`);
+        }
+        break;
+      case "ArrayDefinition":
+        this.validateSingleTypeReference(
+          def.elementType,
+          `ARRAY type '${typeName}'`,
+        );
+        break;
+      case "SubrangeDefinition":
+        this.validateSingleTypeReference(
+          def.baseType,
+          `subrange type '${typeName}'`,
+        );
+        break;
+      case "EnumDefinition":
+        if (def.baseType) {
+          this.validateSingleTypeReference(def.baseType, `ENUM '${typeName}'`);
+        }
+        break;
+      case "TypeReference":
+        // Type alias — validate the target type
+        this.validateSingleTypeReference(def, `type alias '${typeName}'`);
+        break;
     }
   }
 
