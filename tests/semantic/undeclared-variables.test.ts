@@ -433,8 +433,8 @@ describe("Undeclared Variables - Negative (must error)", () => {
     const errs = undeclaredErrors(result);
     expect(errs).toHaveLength(1);
     expect(errs[0]!.message).toContain("'BADVAR'");
-    expect(typeof errs[0]!.line).toBe("number");
-    expect(typeof errs[0]!.column).toBe("number");
+    expect(errs[0]!.line).toBeGreaterThan(0);
+    expect(errs[0]!.column).toBeGreaterThan(0);
   });
 
   it("should error on undeclared variable in function body", () => {
