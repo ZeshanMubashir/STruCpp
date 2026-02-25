@@ -25,6 +25,11 @@ import type { CompileError } from "../types.js";
 import { StdFunctionRegistry } from "./std-function-registry.js";
 import { Scope, SymbolTables } from "./symbol-table.js";
 import { TypeChecker } from "./type-checker.js";
+import {
+  getBitAccessWidth,
+  resolveFieldType,
+  resolveArrayElementType,
+} from "./type-utils.js";
 
 // =============================================================================
 // Located Variable Address Parsing
@@ -160,7 +165,7 @@ export class SemanticAnalyzer {
 
   constructor() {
     this.symbolTables = new SymbolTables();
-    this.typeChecker = new TypeChecker(this.symbolTables);
+    this.typeChecker = new TypeChecker(this.symbolTables, this.stdRegistry);
   }
 
   /**
@@ -179,7 +184,7 @@ export class SemanticAnalyzer {
     // Use provided symbol tables (with library symbols pre-registered) or create new ones
     if (existingSymbolTables) {
       this.symbolTables = existingSymbolTables;
-      this.typeChecker = new TypeChecker(this.symbolTables);
+      this.typeChecker = new TypeChecker(this.symbolTables, this.stdRegistry);
     }
 
     // Pass 1: Build symbol tables
@@ -1240,22 +1245,7 @@ export class SemanticAnalyzer {
   // Bit Access & ADR Expression Validation
   // =============================================================================
 
-  /** Bit widths for IEC types that support bit access. */
-  private static readonly IEC_TYPE_BITS: Record<string, number> = {
-    BOOL: 1,
-    BYTE: 8,
-    WORD: 16,
-    DWORD: 32,
-    LWORD: 64,
-    SINT: 8,
-    INT: 16,
-    DINT: 32,
-    LINT: 64,
-    USINT: 8,
-    UINT: 16,
-    UDINT: 32,
-    ULINT: 64,
-  };
+  // IEC_TYPE_BITS removed — use getTypeBits() from type-utils.ts
 
   /**
    * Validate expressions across all programs, functions, and FBs.
@@ -1503,7 +1493,7 @@ export class SemanticAnalyzer {
 
       // If the variable has subscripts (array indexing), resolve to the element type
       if (i === 0 && hasSubscripts) {
-        const elemType = this.resolveArrayElementType(typeName, ast);
+        const elemType = resolveArrayElementType(typeName, ast);
         if (elemType) {
           typeName = elemType;
         } else {
@@ -1515,16 +1505,12 @@ export class SemanticAnalyzer {
       for (let j = 0; j < i; j++) {
         const intermediateField = expr.fieldAccess[j]!;
         if (/^\d+$/.test(intermediateField)) return; // Earlier bit access — skip
-        typeName = this.resolveStructFieldType(
-          typeName,
-          intermediateField,
-          ast,
-        );
+        typeName = resolveFieldType(typeName, intermediateField, ast);
         if (!typeName) return;
       }
 
       const typeUpper = typeName.toUpperCase();
-      const bits = SemanticAnalyzer.IEC_TYPE_BITS[typeUpper];
+      const bits = getBitAccessWidth(typeUpper);
       if (bits === undefined) {
         // Type doesn't support bit access (REAL, STRING, user-defined, etc.)
         this.addError(
@@ -1545,75 +1531,8 @@ export class SemanticAnalyzer {
     }
   }
 
-  /**
-   * Resolve the type of a struct field by looking up the type definition in the AST.
-   */
-  private resolveStructFieldType(
-    typeName: string,
-    fieldName: string,
-    ast: CompilationUnit,
-  ): string | undefined {
-    const typeUpper = typeName.toUpperCase();
-    const fieldUpper = fieldName.toUpperCase();
-
-    // Check struct type definitions
-    for (const td of ast.types) {
-      if (
-        td.name.toUpperCase() === typeUpper &&
-        td.definition.kind === "StructDefinition"
-      ) {
-        for (const field of td.definition.fields) {
-          for (const name of field.names) {
-            if (name.toUpperCase() === fieldUpper) return field.type.name;
-          }
-        }
-      }
-    }
-
-    // Check FB var blocks (FB instance member access)
-    for (const fb of ast.functionBlocks) {
-      if (fb.name.toUpperCase() === typeUpper) {
-        for (const block of fb.varBlocks) {
-          for (const decl of block.declarations) {
-            for (const name of decl.names) {
-              if (name.toUpperCase() === fieldUpper) return decl.type.name;
-            }
-          }
-        }
-        return undefined;
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Resolve the element type of an array type.
-   * Handles __INLINE_ARRAY_* internal types and user-defined array TYPE definitions.
-   */
-  private resolveArrayElementType(
-    typeName: string,
-    ast: CompilationUnit,
-  ): string | undefined {
-    const typeUpper = typeName.toUpperCase();
-
-    // Handle __INLINE_ARRAY_<ElementType> internal types
-    if (typeUpper.startsWith("__INLINE_ARRAY_")) {
-      return typeUpper.substring("__INLINE_ARRAY_".length);
-    }
-
-    // Check user-defined array type definitions
-    for (const td of ast.types) {
-      if (
-        td.name.toUpperCase() === typeUpper &&
-        td.definition.kind === "ArrayDefinition"
-      ) {
-        return td.definition.elementType.name.toUpperCase();
-      }
-    }
-
-    return undefined;
-  }
+  // resolveStructFieldType and resolveArrayElementType removed
+  // — use resolveFieldType() and resolveArrayElementType() from type-utils.ts
 
   /**
    * Validate access modifier enforcement for method calls.

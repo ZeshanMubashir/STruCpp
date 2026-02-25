@@ -42,6 +42,13 @@ import { getProjectNamespace, parseTimeLiteral } from "../project-model.js";
 import { TypeRegistry } from "../semantic/type-registry.js";
 import { TypeCodeGenerator } from "./type-codegen.js";
 import { formatArrayType, iecBaseToCppLiteral } from "./codegen-utils.js";
+import {
+  getTypeBits,
+  getTypeCategory,
+  isImplicitlyConvertible,
+  resolveFieldType as resolveFieldTypeUtil,
+  typeName as typeNameUtil,
+} from "../semantic/type-utils.js";
 
 // =============================================================================
 // Located Variable Support
@@ -280,43 +287,7 @@ export class CodeGenerator {
   /** Library implementation code (e.g. compiled stdlib FB method bodies) injected into the .cpp */
   private libraryImplCode: string | undefined;
 
-  /** Bit-width of each IEC elementary type */
-  private static readonly IEC_TYPE_BITS: Record<string, number> = {
-    BOOL: 1,
-    BYTE: 8,
-    WORD: 16,
-    DWORD: 32,
-    LWORD: 64,
-    SINT: 8,
-    INT: 16,
-    DINT: 32,
-    LINT: 64,
-    USINT: 8,
-    UINT: 16,
-    UDINT: 32,
-    ULINT: 64,
-    REAL: 32,
-    LREAL: 64,
-  };
-
-  /** Category grouping for IEC types (same category = safe widening) */
-  private static readonly IEC_TYPE_CAT: Record<string, string> = {
-    BOOL: "BIT",
-    BYTE: "BIT",
-    WORD: "BIT",
-    DWORD: "BIT",
-    LWORD: "BIT",
-    SINT: "SINT",
-    INT: "SINT",
-    DINT: "SINT",
-    LINT: "SINT",
-    USINT: "UINT",
-    UINT: "UINT",
-    UDINT: "UINT",
-    ULINT: "UINT",
-    REAL: "REAL",
-    LREAL: "REAL",
-  };
+  // IEC_TYPE_BITS and IEC_TYPE_CAT removed — use getTypeBits()/getTypeCategory() from type-utils.ts
 
   constructor(
     private readonly _symbolTables?: SymbolTables,
@@ -2769,7 +2740,7 @@ export class CodeGenerator {
       const rightType = this.inferExprType(expr.right);
       const isBitwise = [leftType, rightType].some((t) => {
         if (!t) return false;
-        const cat = CodeGenerator.IEC_TYPE_CAT[t.toUpperCase()];
+        const cat = getTypeCategory(t.toUpperCase());
         return cat === "BIT" && t.toUpperCase() !== "BOOL";
       });
       if (isBitwise) {
@@ -2793,7 +2764,7 @@ export class CodeGenerator {
         // NOT on non-BOOL ANY_BIT types must use bitwise complement (~)
         const opType = this.inferExprType(expr.operand);
         if (opType) {
-          const cat = CodeGenerator.IEC_TYPE_CAT[opType.toUpperCase()];
+          const cat = getTypeCategory(opType.toUpperCase());
           if (cat === "BIT" && opType.toUpperCase() !== "BOOL") {
             return `~${operand}`;
           }
@@ -2841,32 +2812,7 @@ export class CodeGenerator {
    * and integer→REAL promotion.
    */
   private canImplicitWiden(source: string, target: string): boolean {
-    const s = source.toUpperCase();
-    const t = target.toUpperCase();
-    if (s === t) return true;
-    const sBits = CodeGenerator.IEC_TYPE_BITS[s];
-    const tBits = CodeGenerator.IEC_TYPE_BITS[t];
-    const sCat = CodeGenerator.IEC_TYPE_CAT[s];
-    const tCat = CodeGenerator.IEC_TYPE_CAT[t];
-    if (sBits === undefined || tBits === undefined || !sCat || !tCat)
-      return false;
-    // Same category, wider target
-    if (sCat === tCat && tBits >= sBits) return true;
-    // BIT → signed/unsigned integer (CODESYS: BYTE→INT)
-    if (
-      sCat === "BIT" &&
-      (tCat === "SINT" || tCat === "UINT") &&
-      tBits >= sBits
-    )
-      return true;
-    // Integer/unsigned → REAL promotion
-    if (
-      (sCat === "SINT" || sCat === "UINT" || sCat === "BIT") &&
-      tCat === "REAL" &&
-      tBits >= sBits
-    )
-      return true;
-    return false;
+    return isImplicitlyConvertible(source, target);
   }
 
   /**
@@ -2874,6 +2820,12 @@ export class CodeGenerator {
    * variable type map. Returns the IEC type name (upper case) or undefined.
    */
   private inferExprType(expr: Expression): string | undefined {
+    // Use pre-computed type from semantic analysis when available
+    if (expr.resolvedType) {
+      const name = typeNameUtil(expr.resolvedType);
+      if (name) return name.toUpperCase();
+    }
+    // Fallback to ad-hoc inference for standalone codegen (tests without semantic analysis)
     switch (expr.kind) {
       case "VariableExpression":
         return this.currentScopeVarTypes
@@ -2903,8 +2855,8 @@ export class CodeGenerator {
         const rt = this.inferExprType(expr.right);
         // Prefer variable types over literal types
         if (lt && rt) {
-          const lBits = CodeGenerator.IEC_TYPE_BITS[lt] ?? 0;
-          const rBits = CodeGenerator.IEC_TYPE_BITS[rt] ?? 0;
+          const lBits = getTypeBits(lt) ?? 0;
+          const rBits = getTypeBits(rt) ?? 0;
           return rBits > lBits ? rt : lt;
         }
         return lt ?? rt;
@@ -3074,8 +3026,8 @@ export class CodeGenerator {
       if (litTypes.length === 0) return;
       dominant = litTypes[0]!;
       for (let i = 1; i < litTypes.length; i++) {
-        const bits1 = CodeGenerator.IEC_TYPE_BITS[dominant] ?? 0;
-        const bits2 = CodeGenerator.IEC_TYPE_BITS[litTypes[i]!] ?? 0;
+        const bits1 = getTypeBits(dominant) ?? 0;
+        const bits2 = getTypeBits(litTypes[i]!) ?? 0;
         if (bits2 > bits1) dominant = litTypes[i]!;
       }
     } else {
@@ -3084,8 +3036,8 @@ export class CodeGenerator {
       for (let i = 1; i < varTypes.length; i++) {
         if (varTypes[i] !== dominant) {
           // Pick wider type
-          const bits1 = CodeGenerator.IEC_TYPE_BITS[dominant] ?? 0;
-          const bits2 = CodeGenerator.IEC_TYPE_BITS[varTypes[i]!] ?? 0;
+          const bits1 = getTypeBits(dominant) ?? 0;
+          const bits2 = getTypeBits(varTypes[i]!) ?? 0;
           if (bits2 > bits1) dominant = varTypes[i]!;
         }
       }
@@ -3098,8 +3050,8 @@ export class CodeGenerator {
       const litType = argTypes[i];
       if (!litType || litType === dominant) continue;
       const expr = argExprs[i]!.value;
-      const litCat = CodeGenerator.IEC_TYPE_CAT[litType];
-      const domCat = CodeGenerator.IEC_TYPE_CAT[dominant];
+      const litCat = getTypeCategory(litType);
+      const domCat = getTypeCategory(dominant);
       // Never narrow a REAL literal to integer — that truncates (e.g. 1.5 → 1)
       if (litCat === "REAL" && domCat !== "REAL" && this.isBareLiteral(expr)) {
         continue;
@@ -3488,50 +3440,8 @@ export class CodeGenerator {
     typeName: string | undefined,
     memberName: string,
   ): string | undefined {
-    if (!typeName) return undefined;
-    const typeUpper = typeName.toUpperCase();
-    const memberUpper = memberName.toUpperCase();
-    if (!this.ast) return undefined;
-
-    for (const fb of this.ast.functionBlocks) {
-      if (fb.name.toUpperCase() === typeUpper) {
-        for (const block of fb.varBlocks) {
-          for (const decl of block.declarations) {
-            for (const name of decl.names) {
-              if (name.toUpperCase() === memberUpper) return decl.type.name;
-            }
-          }
-        }
-        return undefined;
-      }
-    }
-
-    for (const prog of this.ast.programs) {
-      if (prog.name.toUpperCase() === typeUpper) {
-        for (const block of prog.varBlocks) {
-          for (const decl of block.declarations) {
-            for (const name of decl.names) {
-              if (name.toUpperCase() === memberUpper) return decl.type.name;
-            }
-          }
-        }
-        return undefined;
-      }
-    }
-
-    for (const td of this.ast.types) {
-      if (
-        td.name.toUpperCase() === typeUpper &&
-        td.definition.kind === "StructDefinition"
-      ) {
-        for (const field of td.definition.fields) {
-          for (const name of field.names) {
-            if (name.toUpperCase() === memberUpper) return field.type.name;
-          }
-        }
-      }
-    }
-    return undefined;
+    if (!typeName || !this.ast) return undefined;
+    return resolveFieldTypeUtil(typeName, memberName, this.ast);
   }
 
   /**

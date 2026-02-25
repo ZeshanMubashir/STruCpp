@@ -365,8 +365,8 @@ export function compile(
     }
   }
 
-  const codegenSymbolTables = new SymbolTables();
-  const codegen = new CodeGenerator(codegenSymbolTables, {
+  // Pass semantic symbol tables to codegen so it can use type info from semantic analysis
+  const codegen = new CodeGenerator(semanticSymbolTables, {
     sourceComments: mergedOptions.debug,
     lineDirectives: mergedOptions.lineMapping,
     headerFileName: mergedOptions.headerFileName ?? "generated.hpp",
