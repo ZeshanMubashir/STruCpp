@@ -448,4 +448,21 @@ describe("Undeclared Variables - Negative (must error)", () => {
     expect(errs).toHaveLength(1);
     expect(errs[0]!.message).toContain("'UNDECLARED'");
   });
+
+  it("should error on undeclared variable in accessChain subscript", () => {
+    const result = analyzeSource(`
+      TYPE MyRecord : STRUCT
+        items : ARRAY[0..9] OF INT;
+      END_STRUCT;
+      END_TYPE
+
+      PROGRAM Main
+        VAR rec : MyRecord; END_VAR
+        rec.items[notDeclared] := 42;
+      END_PROGRAM
+    `);
+    const errs = undeclaredErrors(result);
+    expect(errs).toHaveLength(1);
+    expect(errs[0]!.message).toContain("'NOTDECLARED'");
+  });
 });

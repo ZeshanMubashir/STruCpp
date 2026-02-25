@@ -443,6 +443,7 @@ export function compile(
     warnings,
     ast,
     projectModel: projectModelResult.model,
+    symbolTables: semanticResult.symbolTables,
   };
 }
 

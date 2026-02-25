@@ -17,6 +17,8 @@ import type {
   VarBlock,
   VarDeclaration,
   Statement,
+  TestFile,
+  TestStatement,
   Visibility,
 } from "../frontend/ast.js";
 import type { CompileError } from "../types.js";
@@ -2385,8 +2387,20 @@ export class SemanticAnalyzer {
     switch (expr.kind) {
       case "VariableExpression":
         this.checkNameDeclared(expr.name, scope, ctx, expr.sourceSpan);
-        for (const sub of expr.subscripts) {
-          this.checkExpressionForUndeclaredVars(sub, scope, ctx);
+        if (expr.accessChain) {
+          // accessChain is the authoritative ordered chain — walk its subscripts
+          for (const step of expr.accessChain) {
+            if (step.kind === "subscript") {
+              for (const idx of step.indices) {
+                this.checkExpressionForUndeclaredVars(idx, scope, ctx);
+              }
+            }
+          }
+        } else {
+          // Legacy path: no accessChain, use subscripts directly
+          for (const sub of expr.subscripts) {
+            this.checkExpressionForUndeclaredVars(sub, scope, ctx);
+          }
         }
         break;
       case "FunctionCallExpression":
@@ -2495,6 +2509,136 @@ export class SemanticAnalyzer {
     );
   }
 
+  // =============================================================================
+  // Test File Analysis
+  // =============================================================================
+
+  /**
+   * Analyze a parsed test file against source symbol tables.
+   * Validates type references in var blocks and undeclared variable usage
+   * in SETUP, TEARDOWN, and TEST bodies.
+   */
+  analyzeTestFile(
+    testFile: TestFile,
+    sourceSymbolTables: SymbolTables,
+  ): { errors: CompileError[]; warnings: CompileError[] } {
+    this.errors = [];
+    this.warnings = [];
+    this.symbolTables = sourceSymbolTables;
+
+    // Validate type references in SETUP and TEST var blocks
+    if (testFile.setup) {
+      this.validateTestVarBlocks(testFile.setup.varBlocks, "SETUP");
+    }
+    for (const tc of testFile.testCases) {
+      this.validateTestVarBlocks(tc.varBlocks, `TEST '${tc.name}'`);
+    }
+
+    // Build SETUP scope (parented to globalScope)
+    const setupScope = this.buildTestScope(
+      testFile.setup?.varBlocks ?? [],
+      this.symbolTables.globalScope,
+    );
+
+    // Walk SETUP body
+    if (testFile.setup) {
+      this.walkTestStatementsForUndeclaredVars(testFile.setup.body, setupScope);
+    }
+
+    // Walk TEARDOWN body (runs in setup context)
+    if (testFile.teardown) {
+      this.walkTestStatementsForUndeclaredVars(
+        testFile.teardown.body,
+        setupScope,
+      );
+    }
+
+    // Walk each TEST body with scope = SETUP vars + TEST-local vars
+    for (const tc of testFile.testCases) {
+      const testScope = this.buildTestScope(tc.varBlocks, setupScope);
+      this.walkTestStatementsForUndeclaredVars(tc.body, testScope);
+    }
+
+    return { errors: [...this.errors], warnings: [...this.warnings] };
+  }
+
+  /**
+   * Validate type references in test var blocks.
+   */
+  private validateTestVarBlocks(varBlocks: VarBlock[], context: string): void {
+    for (const block of varBlocks) {
+      for (const decl of block.declarations) {
+        this.validateSingleTypeReference(decl.type, context);
+      }
+    }
+  }
+
+  /**
+   * Build a Scope from test var blocks, parented to the given parent scope.
+   */
+  private buildTestScope(varBlocks: VarBlock[], parent: Scope): Scope {
+    const scope = new Scope("test", parent);
+    for (const block of varBlocks) {
+      for (const decl of block.declarations) {
+        for (const varName of decl.names) {
+          try {
+            scope.define({
+              name: varName,
+              kind: "variable",
+              declaration: decl,
+              isInput: false,
+              isOutput: false,
+              isInOut: false,
+              isExternal: false,
+              isGlobal: false,
+              isRetain: false,
+            });
+          } catch {
+            // Ignore duplicates within test blocks
+          }
+        }
+      }
+    }
+    return scope;
+  }
+
+  /**
+   * Walk test statements checking for undeclared variable usage.
+   * Handles test-specific statement kinds (AssertCall, AdvanceTime, Mock*).
+   */
+  private walkTestStatementsForUndeclaredVars(
+    stmts: TestStatement[],
+    scope: Scope,
+  ): void {
+    const ctx: UndeclaredVarContext = {};
+    for (const stmt of stmts) {
+      switch (stmt.kind) {
+        case "AssertCall":
+          for (const arg of stmt.args) {
+            this.checkExpressionForUndeclaredVars(arg, scope, ctx);
+          }
+          break;
+        case "AdvanceTimeStatement":
+          this.checkExpressionForUndeclaredVars(stmt.duration, scope, ctx);
+          break;
+        case "MockFunctionStatement":
+          this.checkExpressionForUndeclaredVars(stmt.returnValue, scope, ctx);
+          break;
+        case "MockVerifyCallCountStatement":
+          this.checkExpressionForUndeclaredVars(stmt.expectedCount, scope, ctx);
+          break;
+        case "MockFBStatement":
+        case "MockVerifyCalledStatement":
+          // instancePath is string[], not expressions — nothing to check
+          break;
+        default:
+          // Regular Statement — delegate to existing walker
+          this.walkStatementsForUndeclaredVars([stmt as Statement], scope, ctx);
+          break;
+      }
+    }
+  }
+
   /**
    * Add a warning message.
    * Used in Phase 3+ for semantic validation warnings.
@@ -2519,4 +2663,16 @@ export function analyze(
 ): SemanticAnalysisResult {
   const analyzer = new SemanticAnalyzer();
   return analyzer.analyze(ast, existingSymbolTables);
+}
+
+/**
+ * Analyze a test file against source symbol tables.
+ * Convenience function that creates an analyzer and runs test file analysis.
+ */
+export function analyzeTestFile(
+  testFile: TestFile,
+  sourceSymbolTables: SymbolTables,
+): { errors: CompileError[]; warnings: CompileError[] } {
+  const analyzer = new SemanticAnalyzer();
+  return analyzer.analyzeTestFile(testFile, sourceSymbolTables);
 }
