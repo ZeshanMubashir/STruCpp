@@ -166,6 +166,7 @@ describe.skipIf(!hasGpp || !oscatLibAvailable)(
         // Generate test .st that instantiates every FB
         const testST = generateInstantiationTests(ast);
         const fbCount = ast.functionBlocks.length;
+        expect(fbCount).toBeGreaterThan(0);
         console.log(
           `Generated ${fbCount} FB instantiation tests, ${ast.functions.length} functions compiled`,
         );

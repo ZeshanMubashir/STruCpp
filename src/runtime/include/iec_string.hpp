@@ -1027,4 +1027,104 @@ inline IEC_DINT TO_DINT(const IECStringVar<N>& s) noexcept {
     return TO_DINT(s.get());
 }
 
+template<size_t N>
+inline IEC_SINT TO_SINT(const IECString<N>& s) noexcept {
+    return IEC_SINT(static_cast<SINT_t>(std::strtol(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_SINT TO_SINT(const IECStringVar<N>& s) noexcept {
+    return TO_SINT(s.get());
+}
+
+template<size_t N>
+inline IEC_LINT TO_LINT(const IECString<N>& s) noexcept {
+    return IEC_LINT(static_cast<LINT_t>(std::strtoll(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_LINT TO_LINT(const IECStringVar<N>& s) noexcept {
+    return TO_LINT(s.get());
+}
+
+template<size_t N>
+inline IEC_USINT TO_USINT(const IECString<N>& s) noexcept {
+    return IEC_USINT(static_cast<USINT_t>(std::strtoul(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_USINT TO_USINT(const IECStringVar<N>& s) noexcept {
+    return TO_USINT(s.get());
+}
+
+template<size_t N>
+inline IEC_UINT TO_UINT(const IECString<N>& s) noexcept {
+    return IEC_UINT(static_cast<UINT_t>(std::strtoul(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_UINT TO_UINT(const IECStringVar<N>& s) noexcept {
+    return TO_UINT(s.get());
+}
+
+template<size_t N>
+inline IEC_UDINT TO_UDINT(const IECString<N>& s) noexcept {
+    return IEC_UDINT(static_cast<UDINT_t>(std::strtoul(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_UDINT TO_UDINT(const IECStringVar<N>& s) noexcept {
+    return TO_UDINT(s.get());
+}
+
+template<size_t N>
+inline IEC_ULINT TO_ULINT(const IECString<N>& s) noexcept {
+    return IEC_ULINT(static_cast<ULINT_t>(std::strtoull(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_ULINT TO_ULINT(const IECStringVar<N>& s) noexcept {
+    return TO_ULINT(s.get());
+}
+
+template<size_t N>
+inline IEC_BYTE TO_BYTE(const IECString<N>& s) noexcept {
+    return IEC_BYTE(static_cast<BYTE_t>(std::strtoul(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_BYTE TO_BYTE(const IECStringVar<N>& s) noexcept {
+    return TO_BYTE(s.get());
+}
+
+template<size_t N>
+inline IEC_WORD TO_WORD(const IECString<N>& s) noexcept {
+    return IEC_WORD(static_cast<WORD_t>(std::strtoul(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_WORD TO_WORD(const IECStringVar<N>& s) noexcept {
+    return TO_WORD(s.get());
+}
+
+template<size_t N>
+inline IEC_DWORD TO_DWORD(const IECString<N>& s) noexcept {
+    return IEC_DWORD(static_cast<DWORD_t>(std::strtoul(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_DWORD TO_DWORD(const IECStringVar<N>& s) noexcept {
+    return TO_DWORD(s.get());
+}
+
+template<size_t N>
+inline IEC_LWORD TO_LWORD(const IECString<N>& s) noexcept {
+    return IEC_LWORD(static_cast<LWORD_t>(std::strtoull(s.c_str(), nullptr, 10)));
+}
+template<size_t N>
+inline IEC_LWORD TO_LWORD(const IECStringVar<N>& s) noexcept {
+    return TO_LWORD(s.get());
+}
+
+template<size_t N>
+inline IEC_BOOL TO_BOOL(const IECString<N>& s) noexcept {
+    // "TRUE" or "1" → true, everything else → false
+    return IEC_BOOL(s.length() > 0 && (s[0] == 'T' || s[0] == 't' || s[0] == '1'));
+}
+template<size_t N>
+inline IEC_BOOL TO_BOOL(const IECStringVar<N>& s) noexcept {
+    return TO_BOOL(s.get());
+}
+
 } // namespace strucpp

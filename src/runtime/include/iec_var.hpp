@@ -163,7 +163,10 @@ public:
         return *this;
     }
 
-    /** Assignment from IEC_Ptr (CODESYS: DWORD_VAR := PT stores address as integer) */
+    /** Assignment from IEC_Ptr (CODESYS: DWORD_VAR := PT stores address as integer).
+     *  WARNING: On 64-bit platforms, assigning to types narrower than pointer width
+     *  (e.g., DWORD) truncates the address. Use ULINT, LWORD, or PTR_INT_t for
+     *  portable pointer-to-integer storage. */
     template<typename U, typename V = T, std::enable_if_t<std::is_integral_v<V>, int> = 0>
     IECVar& operator=(const IEC_Ptr<U>& ptr) noexcept {
         set(static_cast<T>(ptr.to_addr()));

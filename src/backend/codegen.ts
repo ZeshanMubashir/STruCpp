@@ -2944,6 +2944,28 @@ export class CodeGenerator {
         }
         return undefined;
       }
+      case "MethodCallExpression": {
+        // Resolve object type → find FB declaration → find method → return type
+        if (expr.object.kind === "VariableExpression") {
+          const objType = this.currentScopeVarTypes.get(
+            expr.object.name.toUpperCase(),
+          );
+          if (objType && this.ast) {
+            const fb = this.ast.functionBlocks.find(
+              (f) => f.name.toUpperCase() === objType.toUpperCase(),
+            );
+            if (fb) {
+              const method = fb.methods.find(
+                (m) => m.name.toUpperCase() === expr.methodName.toUpperCase(),
+              );
+              if (method?.returnType) {
+                return method.returnType.name.toUpperCase();
+              }
+            }
+          }
+        }
+        return undefined;
+      }
       case "ParenthesizedExpression":
         return this.inferExprType(expr.expression);
       default:

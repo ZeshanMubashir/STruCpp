@@ -441,7 +441,9 @@ inline IEC_BOOL NE(T a, T b) noexcept {
  */
 template<typename T, enable_if_any_bit<T> = 0>
 inline T SHL(T in, IEC_INT n) noexcept {
-    return T(iec_unwrap(in) << iec_unwrap(n));
+    auto shift = iec_unwrap(n);
+    if (shift <= 0) return shift == 0 ? in : T(0);
+    return T(iec_unwrap(in) << shift);
 }
 
 // Mixed-type shift count overloads (OSCAT uses various integer types for shift amount)
@@ -449,7 +451,9 @@ template<typename T, typename N,
     enable_if_any_bit<T> = 0,
     std::enable_if_t<!std::is_same_v<std::decay_t<N>, IEC_INT>, int> = 0>
 inline T SHL(T in, N n) noexcept {
-    return T(iec_unwrap(in) << static_cast<int>(iec_unwrap(n)));
+    auto shift = static_cast<int>(iec_unwrap(n));
+    if (shift <= 0) return shift == 0 ? in : T(0);
+    return T(iec_unwrap(in) << shift);
 }
 
 /**
@@ -458,7 +462,9 @@ inline T SHL(T in, N n) noexcept {
  */
 template<typename T, enable_if_any_bit<T> = 0>
 inline T SHR(T in, IEC_INT n) noexcept {
-    return T(iec_unwrap(in) >> iec_unwrap(n));
+    auto shift = iec_unwrap(n);
+    if (shift <= 0) return shift == 0 ? in : T(0);
+    return T(iec_unwrap(in) >> shift);
 }
 
 // Mixed-type shift count overloads
@@ -466,7 +472,9 @@ template<typename T, typename N,
     enable_if_any_bit<T> = 0,
     std::enable_if_t<!std::is_same_v<std::decay_t<N>, IEC_INT>, int> = 0>
 inline T SHR(T in, N n) noexcept {
-    return T(iec_unwrap(in) >> static_cast<int>(iec_unwrap(n)));
+    auto shift = static_cast<int>(iec_unwrap(n));
+    if (shift <= 0) return shift == 0 ? in : T(0);
+    return T(iec_unwrap(in) >> shift);
 }
 
 // SHL/SHR for signed integer types (CODESYS extension, used by OSCAT)
@@ -474,15 +482,19 @@ inline T SHR(T in, N n) noexcept {
 template<typename T, typename N,
     std::enable_if_t<is_any_int_v<T> && !is_any_bit_v<T>, int> = 0>
 inline T SHL(T in, N n) noexcept {
+    auto shift = static_cast<int>(iec_unwrap(n));
+    if (shift <= 0) return shift == 0 ? in : T(0);
     using UT = std::make_unsigned_t<iec_underlying_type_t<T>>;
     return T(static_cast<iec_underlying_type_t<T>>(
-        static_cast<UT>(iec_unwrap(in)) << static_cast<int>(iec_unwrap(n))));
+        static_cast<UT>(iec_unwrap(in)) << shift));
 }
 
 template<typename T, typename N,
     std::enable_if_t<is_any_int_v<T> && !is_any_bit_v<T>, int> = 0>
 inline T SHR(T in, N n) noexcept {
-    return T(iec_unwrap(in) >> static_cast<int>(iec_unwrap(n)));
+    auto shift = static_cast<int>(iec_unwrap(n));
+    if (shift <= 0) return shift == 0 ? in : T(0);
+    return T(iec_unwrap(in) >> shift);
 }
 
 /**
@@ -495,6 +507,7 @@ inline T ROL(T in, IEC_INT n) noexcept {
     auto v = iec_unwrap(in);
     auto shift = iec_unwrap(n) % bits;
     if (shift < 0) shift += bits; // IEC 61131-3: negative N reverses direction
+    if (shift == 0) return in;
     return T((v << shift) | (v >> (bits - shift)));
 }
 
@@ -507,6 +520,7 @@ inline T ROL(T in, N n) noexcept {
     auto v = iec_unwrap(in);
     auto shift = static_cast<int>(iec_unwrap(n)) % bits;
     if (shift < 0) shift += bits; // IEC 61131-3: negative N reverses direction
+    if (shift == 0) return in;
     return T((v << shift) | (v >> (bits - shift)));
 }
 
@@ -520,6 +534,7 @@ inline T ROR(T in, IEC_INT n) noexcept {
     auto v = iec_unwrap(in);
     auto shift = iec_unwrap(n) % bits;
     if (shift < 0) shift += bits; // IEC 61131-3: negative N reverses direction
+    if (shift == 0) return in;
     return T((v >> shift) | (v << (bits - shift)));
 }
 
@@ -532,6 +547,7 @@ inline T ROR(T in, N n) noexcept {
     auto v = iec_unwrap(in);
     auto shift = static_cast<int>(iec_unwrap(n)) % bits;
     if (shift < 0) shift += bits; // IEC 61131-3: negative N reverses direction
+    if (shift == 0) return in;
     return T((v >> shift) | (v << (bits - shift)));
 }
 
