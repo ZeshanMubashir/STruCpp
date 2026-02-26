@@ -36,38 +36,14 @@ function findTestFiles(dir: string): string[] {
 const LIBS_DIR = path.resolve(__dirname, "../../libs");
 
 /**
- * Load standard FB ST sources for tests that need them.
- * Extracts sources from the pre-compiled .stlib archive.
- * Returns additionalSources array for the compile() options.
- */
-function loadStdFBSources(): Array<{ source: string; fileName: string }> {
-  const stlibPath = path.resolve(LIBS_DIR, "iec-standard-fb.stlib");
-  const archive = JSON.parse(fs.readFileSync(stlibPath, "utf-8"));
-  if (!archive.sources || archive.sources.length === 0) {
-    throw new Error("Stdlib .stlib has no embedded sources");
-  }
-  return archive.sources;
-}
-
-/**
  * Run a validation test pair: source.st + test_source.st.
  */
 function runValidation(
   sourcePath: string,
   testPath: string,
-  category: string,
 ): { stdout: string; exitCode: number } {
   const sourceST = fs.readFileSync(sourcePath, "utf-8");
   const testST = fs.readFileSync(testPath, "utf-8");
-
-  // Standard FB tests need the standard FB library compiled as additional sources
-  const compileOptions: Record<string, unknown> = {};
-  if (category === "standard_fbs") {
-    compileOptions.additionalSources = loadStdFBSources();
-  } else {
-    // Non-stdlib tests may still use standard FBs via the library path
-    compileOptions.libraryPaths = [LIBS_DIR];
-  }
 
   return runE2ETestPipeline({
     sourceST,
@@ -75,7 +51,9 @@ function runValidation(
     testFileName: path.basename(testPath),
     isTestBuild: true,
     tempDirPrefix: "strucpp-val-",
-    compileOptions,
+    compileOptions: {
+      libraryPaths: [LIBS_DIR],
+    },
   });
 }
 
@@ -101,7 +79,7 @@ describe.skipIf(!hasGpp)("ST Validation Suite", () => {
     it(
       `validates ${testName}`,
       () => {
-        const { stdout, exitCode } = runValidation(sourcePath, testPath, category);
+        const { stdout, exitCode } = runValidation(sourcePath, testPath);
         expect(stdout).not.toContain("[FAIL]");
         expect(exitCode).toBe(0);
       },
