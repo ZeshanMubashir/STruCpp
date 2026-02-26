@@ -25,6 +25,11 @@ import type { CompileError } from "../types.js";
 import { StdFunctionRegistry } from "./std-function-registry.js";
 import { Scope, SymbolTables } from "./symbol-table.js";
 import { TypeChecker } from "./type-checker.js";
+import {
+  getBitAccessWidth,
+  resolveFieldType,
+  resolveArrayElementType,
+} from "./type-utils.js";
 
 // =============================================================================
 // Located Variable Address Parsing
@@ -145,7 +150,6 @@ interface UndeclaredVarContext {
   fbName?: string;
   methodName?: string;
   propertyName?: string;
-  methodLocalVars?: Map<string, string>;
 }
 
 export class SemanticAnalyzer {
@@ -160,7 +164,7 @@ export class SemanticAnalyzer {
 
   constructor() {
     this.symbolTables = new SymbolTables();
-    this.typeChecker = new TypeChecker(this.symbolTables);
+    this.typeChecker = new TypeChecker(this.symbolTables, this.stdRegistry);
   }
 
   /**
@@ -179,7 +183,7 @@ export class SemanticAnalyzer {
     // Use provided symbol tables (with library symbols pre-registered) or create new ones
     if (existingSymbolTables) {
       this.symbolTables = existingSymbolTables;
-      this.typeChecker = new TypeChecker(this.symbolTables);
+      this.typeChecker = new TypeChecker(this.symbolTables, this.stdRegistry);
     }
 
     // Pass 1: Build symbol tables
@@ -290,6 +294,50 @@ export class SemanticAnalyzer {
           "functionBlock",
           fbDecl.name,
         );
+
+        // Create method scopes (parent = FB scope for correct lookup chain)
+        for (const method of fbDecl.methods) {
+          try {
+            const methodScope = this.symbolTables.createMethodScope(
+              fbDecl.name,
+              method.name,
+            );
+            this.buildVarBlockSymbols(
+              method.varBlocks,
+              methodScope,
+              "functionBlock",
+              fbDecl.name,
+            );
+            // Register method return variable (MethodName := value)
+            if (method.returnType) {
+              const retType: ElementaryType = {
+                typeKind: "elementary",
+                name: method.returnType.name,
+                sizeBits: 0,
+              };
+              methodScope.define({
+                name: method.name,
+                kind: "variable",
+                type: retType,
+                declaration: undefined as unknown as VarDeclaration,
+                isInput: false,
+                isOutput: false,
+                isInOut: false,
+                isExternal: false,
+                isGlobal: false,
+                isRetain: false,
+              });
+            }
+          } catch (methodErr) {
+            if (methodErr instanceof Error) {
+              this.addError(
+                methodErr.message,
+                method.sourceSpan.startLine,
+                method.sourceSpan.startCol,
+              );
+            }
+          }
+        }
       } catch (err) {
         if (err instanceof Error) {
           this.addError(
@@ -1240,22 +1288,7 @@ export class SemanticAnalyzer {
   // Bit Access & ADR Expression Validation
   // =============================================================================
 
-  /** Bit widths for IEC types that support bit access. */
-  private static readonly IEC_TYPE_BITS: Record<string, number> = {
-    BOOL: 1,
-    BYTE: 8,
-    WORD: 16,
-    DWORD: 32,
-    LWORD: 64,
-    SINT: 8,
-    INT: 16,
-    DINT: 32,
-    LINT: 64,
-    USINT: 8,
-    UINT: 16,
-    UDINT: 32,
-    ULINT: 64,
-  };
+  // IEC_TYPE_BITS removed — use getTypeBits() from type-utils.ts
 
   /**
    * Validate expressions across all programs, functions, and FBs.
@@ -1503,7 +1536,7 @@ export class SemanticAnalyzer {
 
       // If the variable has subscripts (array indexing), resolve to the element type
       if (i === 0 && hasSubscripts) {
-        const elemType = this.resolveArrayElementType(typeName, ast);
+        const elemType = resolveArrayElementType(typeName, ast);
         if (elemType) {
           typeName = elemType;
         } else {
@@ -1515,16 +1548,12 @@ export class SemanticAnalyzer {
       for (let j = 0; j < i; j++) {
         const intermediateField = expr.fieldAccess[j]!;
         if (/^\d+$/.test(intermediateField)) return; // Earlier bit access — skip
-        typeName = this.resolveStructFieldType(
-          typeName,
-          intermediateField,
-          ast,
-        );
+        typeName = resolveFieldType(typeName, intermediateField, ast);
         if (!typeName) return;
       }
 
       const typeUpper = typeName.toUpperCase();
-      const bits = SemanticAnalyzer.IEC_TYPE_BITS[typeUpper];
+      const bits = getBitAccessWidth(typeUpper);
       if (bits === undefined) {
         // Type doesn't support bit access (REAL, STRING, user-defined, etc.)
         this.addError(
@@ -1545,75 +1574,8 @@ export class SemanticAnalyzer {
     }
   }
 
-  /**
-   * Resolve the type of a struct field by looking up the type definition in the AST.
-   */
-  private resolveStructFieldType(
-    typeName: string,
-    fieldName: string,
-    ast: CompilationUnit,
-  ): string | undefined {
-    const typeUpper = typeName.toUpperCase();
-    const fieldUpper = fieldName.toUpperCase();
-
-    // Check struct type definitions
-    for (const td of ast.types) {
-      if (
-        td.name.toUpperCase() === typeUpper &&
-        td.definition.kind === "StructDefinition"
-      ) {
-        for (const field of td.definition.fields) {
-          for (const name of field.names) {
-            if (name.toUpperCase() === fieldUpper) return field.type.name;
-          }
-        }
-      }
-    }
-
-    // Check FB var blocks (FB instance member access)
-    for (const fb of ast.functionBlocks) {
-      if (fb.name.toUpperCase() === typeUpper) {
-        for (const block of fb.varBlocks) {
-          for (const decl of block.declarations) {
-            for (const name of decl.names) {
-              if (name.toUpperCase() === fieldUpper) return decl.type.name;
-            }
-          }
-        }
-        return undefined;
-      }
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Resolve the element type of an array type.
-   * Handles __INLINE_ARRAY_* internal types and user-defined array TYPE definitions.
-   */
-  private resolveArrayElementType(
-    typeName: string,
-    ast: CompilationUnit,
-  ): string | undefined {
-    const typeUpper = typeName.toUpperCase();
-
-    // Handle __INLINE_ARRAY_<ElementType> internal types
-    if (typeUpper.startsWith("__INLINE_ARRAY_")) {
-      return typeUpper.substring("__INLINE_ARRAY_".length);
-    }
-
-    // Check user-defined array type definitions
-    for (const td of ast.types) {
-      if (
-        td.name.toUpperCase() === typeUpper &&
-        td.definition.kind === "ArrayDefinition"
-      ) {
-        return td.definition.elementType.name.toUpperCase();
-      }
-    }
-
-    return undefined;
-  }
+  // resolveStructFieldType and resolveArrayElementType removed
+  // — use resolveFieldType() and resolveArrayElementType() from type-utils.ts
 
   /**
    * Validate access modifier enforcement for method calls.
@@ -2279,12 +2241,18 @@ export class SemanticAnalyzer {
           fbName: fb.name,
         });
         for (const method of fb.methods) {
-          const methodVars = this.buildVarTypeMap(method.varBlocks);
-          this.walkStatementsForUndeclaredVars(method.body, scope, {
-            fbName: fb.name,
-            methodName: method.name,
-            methodLocalVars: methodVars,
-          });
+          const methodScope = this.symbolTables.getMethodScope(
+            fb.name,
+            method.name,
+          );
+          this.walkStatementsForUndeclaredVars(
+            method.body,
+            methodScope ?? scope,
+            {
+              fbName: fb.name,
+              methodName: method.name,
+            },
+          );
         }
         for (const prop of fb.properties) {
           if (prop.getter) {
@@ -2485,20 +2453,17 @@ export class SemanticAnalyzer {
       }
     }
 
-    // 2. Method-local variables
-    if (ctx.methodLocalVars?.has(upper)) return;
-
-    // 3. Function return variable (FuncName := value)
+    // 2. Function return variable (FuncName := value)
     if (ctx.functionName && upper === ctx.functionName.toUpperCase()) return;
 
-    // 4. Method/property return variable
+    // 3. Method/property return variable
     if (ctx.methodName && upper === ctx.methodName.toUpperCase()) return;
     if (ctx.propertyName && upper === ctx.propertyName.toUpperCase()) return;
 
-    // 5. THIS / SUPER keywords (valid in FB/method/property context)
+    // 4. THIS / SUPER keywords (valid in FB/method/property context)
     if ((upper === "THIS" || upper === "SUPER") && ctx.fbName) return;
 
-    // 6. Standard functions (safety net)
+    // 5. Standard functions (safety net)
     if (this.stdRegistry.isStandardFunction(name)) return;
 
     // 7. Not found
