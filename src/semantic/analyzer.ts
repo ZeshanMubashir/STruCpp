@@ -150,7 +150,6 @@ interface UndeclaredVarContext {
   fbName?: string;
   methodName?: string;
   propertyName?: string;
-  methodLocalVars?: Map<string, string>;
 }
 
 export class SemanticAnalyzer {
@@ -2454,20 +2453,17 @@ export class SemanticAnalyzer {
       }
     }
 
-    // 2. Method-local variables
-    if (ctx.methodLocalVars?.has(upper)) return;
-
-    // 3. Function return variable (FuncName := value)
+    // 2. Function return variable (FuncName := value)
     if (ctx.functionName && upper === ctx.functionName.toUpperCase()) return;
 
-    // 4. Method/property return variable
+    // 3. Method/property return variable
     if (ctx.methodName && upper === ctx.methodName.toUpperCase()) return;
     if (ctx.propertyName && upper === ctx.propertyName.toUpperCase()) return;
 
-    // 5. THIS / SUPER keywords (valid in FB/method/property context)
+    // 4. THIS / SUPER keywords (valid in FB/method/property context)
     if ((upper === "THIS" || upper === "SUPER") && ctx.fbName) return;
 
-    // 6. Standard functions (safety net)
+    // 5. Standard functions (safety net)
     if (this.stdRegistry.isStandardFunction(name)) return;
 
     // 7. Not found
