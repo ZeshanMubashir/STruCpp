@@ -150,7 +150,6 @@ interface UndeclaredVarContext {
   fbName?: string;
   methodName?: string;
   propertyName?: string;
-  methodLocalVars?: Map<string, string>;
 }
 
 export class SemanticAnalyzer {
@@ -295,6 +294,50 @@ export class SemanticAnalyzer {
           "functionBlock",
           fbDecl.name,
         );
+
+        // Create method scopes (parent = FB scope for correct lookup chain)
+        for (const method of fbDecl.methods) {
+          try {
+            const methodScope = this.symbolTables.createMethodScope(
+              fbDecl.name,
+              method.name,
+            );
+            this.buildVarBlockSymbols(
+              method.varBlocks,
+              methodScope,
+              "functionBlock",
+              fbDecl.name,
+            );
+            // Register method return variable (MethodName := value)
+            if (method.returnType) {
+              const retType: ElementaryType = {
+                typeKind: "elementary",
+                name: method.returnType.name,
+                sizeBits: 0,
+              };
+              methodScope.define({
+                name: method.name,
+                kind: "variable",
+                type: retType,
+                declaration: undefined as unknown as VarDeclaration,
+                isInput: false,
+                isOutput: false,
+                isInOut: false,
+                isExternal: false,
+                isGlobal: false,
+                isRetain: false,
+              });
+            }
+          } catch (methodErr) {
+            if (methodErr instanceof Error) {
+              this.addError(
+                methodErr.message,
+                method.sourceSpan.startLine,
+                method.sourceSpan.startCol,
+              );
+            }
+          }
+        }
       } catch (err) {
         if (err instanceof Error) {
           this.addError(
@@ -2198,12 +2241,18 @@ export class SemanticAnalyzer {
           fbName: fb.name,
         });
         for (const method of fb.methods) {
-          const methodVars = this.buildVarTypeMap(method.varBlocks);
-          this.walkStatementsForUndeclaredVars(method.body, scope, {
-            fbName: fb.name,
-            methodName: method.name,
-            methodLocalVars: methodVars,
-          });
+          const methodScope = this.symbolTables.getMethodScope(
+            fb.name,
+            method.name,
+          );
+          this.walkStatementsForUndeclaredVars(
+            method.body,
+            methodScope ?? scope,
+            {
+              fbName: fb.name,
+              methodName: method.name,
+            },
+          );
         }
         for (const prop of fb.properties) {
           if (prop.getter) {
@@ -2404,20 +2453,17 @@ export class SemanticAnalyzer {
       }
     }
 
-    // 2. Method-local variables
-    if (ctx.methodLocalVars?.has(upper)) return;
-
-    // 3. Function return variable (FuncName := value)
+    // 2. Function return variable (FuncName := value)
     if (ctx.functionName && upper === ctx.functionName.toUpperCase()) return;
 
-    // 4. Method/property return variable
+    // 3. Method/property return variable
     if (ctx.methodName && upper === ctx.methodName.toUpperCase()) return;
     if (ctx.propertyName && upper === ctx.propertyName.toUpperCase()) return;
 
-    // 5. THIS / SUPER keywords (valid in FB/method/property context)
+    // 4. THIS / SUPER keywords (valid in FB/method/property context)
     if ((upper === "THIS" || upper === "SUPER") && ctx.fbName) return;
 
-    // 6. Standard functions (safety net)
+    // 5. Standard functions (safety net)
     if (this.stdRegistry.isStandardFunction(name)) return;
 
     // 7. Not found
