@@ -5,8 +5,13 @@
  * Libraries expose their functions, FBs, and types for use by other compilations.
  */
 
-import type { LibraryCompileResult } from "./library-manifest.js";
+import type {
+  LibraryCompileResult,
+  StlibCompileResult,
+  StlibArchive,
+} from "./library-manifest.js";
 import { compile } from "../index.js";
+import { extractNamespaceBody } from "./library-utils.js";
 
 /**
  * Compile ST source files into a library.
@@ -17,7 +22,13 @@ import { compile } from "../index.js";
  */
 export function compileLibrary(
   sources: Array<{ source: string; fileName: string }>,
-  options: { name: string; version: string; namespace: string },
+  options: {
+    name: string;
+    version: string;
+    namespace: string;
+    /** Library archives this library depends on */
+    dependencies?: StlibArchive[];
+  },
 ): LibraryCompileResult {
   if (sources.length === 0) {
     return {
@@ -42,12 +53,13 @@ export function compileLibrary(
   const primarySource = sources[0]!;
   const additionalSources = sources.slice(1);
 
-  const result = compile(primarySource.source, {
+  const compileOpts: Partial<import("../types.js").CompileOptions> = {
     additionalSources,
-    // Disable auto-loading of standard FB library when compiling a library,
-    // since the library itself may be defining those same FBs.
-    noStdFBLibrary: true,
-  });
+  };
+  if (options.dependencies) {
+    compileOpts.libraries = options.dependencies;
+  }
+  const result = compile(primarySource.source, compileOpts);
 
   if (!result.success) {
     return {
@@ -145,6 +157,72 @@ export function compileLibrary(
     },
     headerCode: result.headerCode,
     cppCode: result.cppCode,
+    errors: [],
+  };
+}
+
+/**
+ * Compile ST source files into a single `.stlib` archive.
+ *
+ * Wraps `compileLibrary()` and packages the result into a `StlibArchive`
+ * with extracted namespace bodies for the C++ code.
+ *
+ * @param sources - Array of ST source files
+ * @param options - Library metadata and compilation options
+ * @returns The compiled `.stlib` archive result
+ */
+export function compileStlib(
+  sources: Array<{ source: string; fileName: string }>,
+  options: {
+    name: string;
+    version: string;
+    namespace: string;
+    noSource?: boolean;
+    /** Library archives this library depends on */
+    dependencies?: StlibArchive[];
+  },
+): StlibCompileResult {
+  const libResult = compileLibrary(sources, options);
+
+  if (!libResult.success) {
+    return {
+      success: false,
+      archive: {
+        formatVersion: 1,
+        manifest: libResult.manifest,
+        headerCode: "",
+        cppCode: "",
+        dependencies: [],
+      },
+      errors: libResult.errors,
+    };
+  }
+
+  const headerBody = extractNamespaceBody(libResult.headerCode);
+  const cppBody = extractNamespaceBody(libResult.cppCode);
+
+  // Clear manifest.headers — the .stlib archive inlines its C++ code
+  // directly into the consumer's output via addLibraryPreamble(), so
+  // there are no external .hpp files to #include.
+  const manifest = { ...libResult.manifest, headers: [] as string[] };
+
+  const archive: StlibCompileResult["archive"] = {
+    formatVersion: 1,
+    manifest,
+    headerCode: headerBody,
+    cppCode: cppBody,
+    dependencies: [],
+  };
+  if (!options.noSource) {
+    archive.sources = sources.map((s) => ({
+      fileName: s.fileName,
+      source: s.source,
+    }));
+  }
+
+  return {
+    success: true,
+    archive,
     errors: [],
   };
 }

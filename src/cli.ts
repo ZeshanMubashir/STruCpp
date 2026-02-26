@@ -33,11 +33,14 @@ import {
   mkdtempSync,
   rmSync,
   existsSync,
+  statSync,
 } from "fs";
 import { resolve, basename, dirname, join } from "path";
 import { tmpdir } from "os";
 import { execFileSync } from "child_process";
-import { compile, getVersion, compileLibrary } from "./index.js";
+import { compile, getVersion, compileStlib } from "./index.js";
+import { loadStlibFromFile } from "./library/library-loader.js";
+import { discoverSTFiles } from "./library/library-utils.js";
 import { generateReplMain } from "./backend/repl-main-gen.js";
 import { parseTestFile } from "./testing/test-parser.js";
 import {
@@ -62,10 +65,13 @@ interface CLIOptions {
   cc: string;
   cxxFlags: string;
   libraryPaths: string[];
+  noDefaultLibs: boolean;
   compileLib: boolean;
   libName?: string;
   libVersion: string;
   libNamespace?: string;
+  noSource: boolean;
+  decompileLib?: string;
   test: string[];
 }
 
@@ -84,8 +90,10 @@ function parseArgs(args: string[]): CLIOptions {
     cc: process.platform === "win32" ? "gcc" : "cc",
     cxxFlags: "",
     libraryPaths: [],
+    noDefaultLibs: false,
     compileLib: false,
     libVersion: "1.0.0",
+    noSource: false,
     test: [],
   };
 
@@ -143,6 +151,8 @@ function parseArgs(args: string[]): CLIOptions {
       if (nextArg !== undefined) {
         options.libraryPaths.push(nextArg);
       }
+    } else if (arg === "--no-default-libs") {
+      options.noDefaultLibs = true;
     } else if (arg === "--compile-lib") {
       options.compileLib = true;
     } else if (arg === "--lib-name") {
@@ -162,6 +172,14 @@ function parseArgs(args: string[]): CLIOptions {
       const nextArg = args[i];
       if (nextArg !== undefined) {
         options.libNamespace = nextArg;
+      }
+    } else if (arg === "--no-source") {
+      options.noSource = true;
+    } else if (arg === "--decompile-lib") {
+      i++;
+      const nextArg = args[i];
+      if (nextArg !== undefined) {
+        options.decompileLib = nextArg;
       }
     } else if (arg === "--test") {
       // Collect all following arguments that don't start with '-' as test files
@@ -192,7 +210,7 @@ STruC++ - IEC 61131-3 Structured Text to C++ Compiler
 
 Usage:
   strucpp <input.st> [input2.st ...] -o <output.cpp> [options]
-  strucpp --compile-lib <input.st> [...] -o <dir> --lib-name <name> [options]
+  strucpp --compile-lib <input.st|dir> [...] -o <dir> --lib-name <name> [options]
 
 Options:
   -o, --output <file>       Output file path (default: <input>.cpp)
@@ -206,14 +224,17 @@ Options:
   --cc <path>               Custom C compiler path (default: cc)
   --cxx-flags <flags>       Extra C++ compiler flags
   -L, --lib-path <path>     Library search path (repeatable)
+  --no-default-libs         Do not auto-add bundled library paths
   -v, --version             Show version
   -h, --help                Show this help
 
 Library compilation:
-  --compile-lib             Compile sources into a library
+  --compile-lib             Compile sources into a .stlib library archive
   --lib-name <name>         Library name (required with --compile-lib)
   --lib-version <version>   Library version (default: "1.0.0")
   --lib-namespace <ns>      C++ namespace (default: derived from lib-name)
+  --no-source               Omit ST source from .stlib archive (closed-source)
+  --decompile-lib <path>    Extract ST sources from a .stlib archive
 
 Testing:
   --test <file> [file2...]   Run tests from test file(s) against source files
@@ -226,7 +247,9 @@ Examples:
   strucpp program.st -o program.cpp --debug --line-directives
   strucpp program.st -o program.cpp --build
   strucpp --compile-lib math.st -o mathlib/ --lib-name math-lib
+  strucpp --compile-lib src/mylib/ -o out/ --lib-name my-lib
   strucpp counter.st --test test_counter.st
+  strucpp --decompile-lib mylib.stlib -o extracted/
 
 For more information, visit: https://github.com/Autonomy-Logic/STruCpp
 `);
@@ -319,7 +342,85 @@ function findRuntimeIncludeDir(cxxFlags: string): string | null {
 }
 
 /**
- * Library compilation mode: compile ST sources into a library manifest + C++ output.
+ * Locate the bundled libs directory containing .stlib files.
+ * Similar to how gcc auto-discovers system libraries from known paths.
+ * Returns the resolved path or null if not found.
+ */
+function findBundledLibsDir(): string | null {
+  const candidates: string[] = [];
+
+  // From import.meta.url (ESM dev mode)
+  try {
+    if (typeof import.meta?.url === "string") {
+      const scriptDir = dirname(new URL(import.meta.url).pathname);
+      // src/cli.ts → ../libs/  or  dist/cli.js → ../libs/
+      candidates.push(resolve(scriptDir, "..", "libs"));
+      // dist/cli.js → ../../libs/
+      candidates.push(resolve(scriptDir, "..", "..", "libs"));
+    }
+  } catch {
+    // unavailable in CJS bundle / pkg binary
+  }
+
+  // From __dirname (CJS bundle via esbuild)
+  if (typeof __dirname === "string") {
+    candidates.push(resolve(__dirname, "..", "libs"));
+    candidates.push(resolve(__dirname, "..", "..", "libs"));
+    candidates.push(resolve(__dirname, "libs"));
+  }
+
+  // Relative to binary (pkg binary may be in dist/bin/, dist/, or project root)
+  const execDir = dirname(process.execPath);
+  for (const base of [
+    execDir,
+    resolve(execDir, ".."),
+    resolve(execDir, "..", ".."),
+  ]) {
+    candidates.push(resolve(base, "libs"));
+  }
+
+  // CWD fallback
+  candidates.push(resolve(process.cwd(), "libs"));
+
+  // Deduplicate and return first existing directory
+  const seen = new Set<string>();
+  for (const dir of candidates) {
+    const resolved = resolve(dir);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    try {
+      if (existsSync(resolved) && statSync(resolved).isDirectory()) {
+        return resolved;
+      }
+    } catch {
+      // skip unreadable paths
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Build the effective list of library search paths.
+ * Prepends the bundled libs directory (like gcc's default system lib paths)
+ * unless --no-default-libs is specified.
+ */
+function getEffectiveLibraryPaths(options: CLIOptions): string[] {
+  const paths: string[] = [];
+
+  if (!options.noDefaultLibs) {
+    const bundledDir = findBundledLibsDir();
+    if (bundledDir) {
+      paths.push(bundledDir);
+    }
+  }
+
+  paths.push(...options.libraryPaths);
+  return paths;
+}
+
+/**
+ * Library compilation mode: compile ST sources into a single .stlib archive.
  */
 function compileLibraryMode(options: CLIOptions): void {
   if (!options.libName) {
@@ -340,29 +441,56 @@ function compileLibraryMode(options: CLIOptions): void {
   const libNamespace =
     options.libNamespace ?? options.libName.replace(/[^a-zA-Z0-9_]/g, "_");
 
-  // Read all input files
-  const sources: Array<{ source: string; fileName: string }> = [];
+  // Collect input files — if an input is a directory, discover .st files recursively
+  const filePaths: string[] = [];
   for (const input of options.inputs) {
     const inputPath = resolve(input);
     try {
-      sources.push({
-        source: readFileSync(inputPath, "utf-8"),
-        fileName: basename(inputPath),
-      });
+      const stat = statSync(inputPath);
+      if (stat.isDirectory()) {
+        const discovered = discoverSTFiles(inputPath);
+        if (discovered.length === 0) {
+          console.error(`Error: No .st files found in directory: ${inputPath}`);
+          process.exit(1);
+        }
+        filePaths.push(...discovered);
+      } else {
+        filePaths.push(inputPath);
+      }
     } catch {
-      console.error(`Error: Cannot read input file: ${inputPath}`);
+      console.error(`Error: Cannot read input: ${inputPath}`);
       process.exit(1);
     }
+  }
+
+  // Read all source files
+  const sources: Array<{ source: string; fileName: string }> = [];
+  for (const filePath of filePaths) {
+    try {
+      sources.push({
+        source: readFileSync(filePath, "utf-8"),
+        fileName: basename(filePath),
+      });
+    } catch {
+      console.error(`Error: Cannot read input file: ${filePath}`);
+      process.exit(1);
+    }
+  }
+
+  if (sources.length === 0) {
+    console.error("Error: No input files specified");
+    process.exit(1);
   }
 
   console.log(
     `Compiling library "${options.libName}" from ${sources.length} source file(s)...`,
   );
 
-  const result = compileLibrary(sources, {
+  const result = compileStlib(sources, {
     name: options.libName,
     version: options.libVersion,
     namespace: libNamespace,
+    noSource: options.noSource,
   });
 
   if (!result.success) {
@@ -376,28 +504,10 @@ function compileLibraryMode(options: CLIOptions): void {
     process.exit(1);
   }
 
-  // Write manifest
-  const manifestPath = resolve(outputDir, `${options.libName}.stlib.json`);
-  writeFileSync(
-    manifestPath,
-    JSON.stringify(result.manifest, null, 2),
-    "utf-8",
-  );
-  console.log(`Manifest written to ${manifestPath}`);
-
-  // Write C++ files
-  if (result.headerCode) {
-    const headerPath = resolve(outputDir, `${options.libName}.hpp`);
-    writeFileSync(headerPath, result.headerCode, "utf-8");
-    console.log(`Header written to ${headerPath}`);
-  }
-
-  if (result.cppCode) {
-    const cppPath = resolve(outputDir, `${options.libName}.cpp`);
-    writeFileSync(cppPath, result.cppCode, "utf-8");
-    console.log(`Source written to ${cppPath}`);
-  }
-
+  // Write single .stlib archive
+  const stlibPath = resolve(outputDir, `${options.libName}.stlib`);
+  writeFileSync(stlibPath, JSON.stringify(result.archive, null, 2), "utf-8");
+  console.log(`Library archive written to ${stlibPath}`);
   console.log("Library compilation successful!");
 }
 
@@ -436,6 +546,7 @@ function runTestMode(options: CLIOptions): void {
     }
   }
 
+  const effectiveLibPaths = getEffectiveLibraryPaths(options);
   const compileOptions: Partial<CompileOptions> = {
     headerFileName: "generated.hpp",
     fileName: basename(inputPath),
@@ -444,8 +555,8 @@ function runTestMode(options: CLIOptions): void {
   if (additionalSources.length > 0) {
     compileOptions.additionalSources = additionalSources;
   }
-  if (options.libraryPaths.length > 0) {
-    compileOptions.libraryPaths = options.libraryPaths;
+  if (effectiveLibPaths.length > 0) {
+    compileOptions.libraryPaths = effectiveLibPaths;
   }
 
   const result = compile(source, compileOptions);
@@ -520,6 +631,9 @@ function runTestMode(options: CLIOptions): void {
     };
   if (result.ast) {
     testMainOpts.ast = result.ast;
+  }
+  if (result.resolvedLibraries) {
+    testMainOpts.libraryArchives = result.resolvedLibraries;
   }
   const testMainCpp = generateTestMain(testFiles, testMainOpts);
 
@@ -619,6 +733,38 @@ function runTestMode(options: CLIOptions): void {
   }
 }
 
+/**
+ * Decompile mode: extract ST source files from a .stlib archive.
+ */
+function decompileLibMode(options: CLIOptions): void {
+  let archive: import("./library/library-manifest.js").StlibArchive;
+  try {
+    archive = loadStlibFromFile(resolve(options.decompileLib!));
+  } catch (e) {
+    console.error(`Error: ${e instanceof Error ? e.message : String(e)}`);
+    process.exit(1);
+  }
+
+  if (!archive.sources || archive.sources.length === 0) {
+    console.error(
+      "Error: This .stlib archive has no embedded sources (compiled with --no-source).",
+    );
+    process.exit(1);
+  }
+
+  const outputDir = options.output ? resolve(options.output) : process.cwd();
+  mkdirSync(outputDir, { recursive: true });
+
+  for (const src of archive.sources) {
+    const outPath = join(outputDir, src.fileName);
+    writeFileSync(outPath, src.source, "utf-8");
+    console.log(`  ${outPath}`);
+  }
+  console.log(
+    `Extracted ${archive.sources.length} file(s) from ${archive.manifest.name} v${archive.manifest.version}`,
+  );
+}
+
 function main(): void {
   const args = process.argv.slice(2);
   const options = parseArgs(args);
@@ -631,6 +777,12 @@ function main(): void {
   if (options.showHelp || args.length === 0) {
     showHelp();
     process.exit(options.showHelp ? 0 : 1);
+  }
+
+  // Decompile mode
+  if (options.decompileLib) {
+    decompileLibMode(options);
+    return;
   }
 
   // Library compilation mode
@@ -683,6 +835,7 @@ function main(): void {
     }
   }
 
+  const effectiveLibPaths = getEffectiveLibraryPaths(options);
   const compileOptions: Partial<CompileOptions> = {
     debug: options.debug,
     lineMapping: options.lineMapping,
@@ -695,8 +848,8 @@ function main(): void {
   if (additionalSources.length > 0) {
     compileOptions.additionalSources = additionalSources;
   }
-  if (options.libraryPaths.length > 0) {
-    compileOptions.libraryPaths = options.libraryPaths;
+  if (effectiveLibPaths.length > 0) {
+    compileOptions.libraryPaths = effectiveLibPaths;
   }
 
   const fileLabel =

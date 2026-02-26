@@ -282,6 +282,7 @@ export function runE2ETestPipeline(
     pous,
     isTestBuild,
     ast: result.ast,
+    libraryArchives: result.resolvedLibraries,
   });
 
   // 5. Write to temp dir and compile
