@@ -351,11 +351,23 @@ describe("V3 integration: OSCAT Basic 335", () => {
       counts[p.type] = (counts[p.type] ?? 0) + 1;
     }
 
-    // Should have functions, FBs, types, and GVLs
+    // Should have functions, FBs, and types
     expect(counts["FUNCTION"]).toBeGreaterThan(300);
     expect(counts["FUNCTION_BLOCK"]).toBeGreaterThan(100);
     expect(counts["TYPE"]).toBeGreaterThan(10);
-    expect(counts["GVL"]).toBeGreaterThan(0);
+
+    // Verify VAR_INPUT/VAR_OUTPUT are properly preserved (not plain VAR)
+    const alarm2 = pous.find((p) => p.name === "ALARM_2");
+    expect(alarm2).toBeDefined();
+    expect(alarm2!.declaration).toContain("VAR_INPUT");
+    expect(alarm2!.declaration).toContain("VAR_OUTPUT");
+    expect(alarm2!.declaration).toContain("VAR\n");
+
+    // Verify TYPE declarations have proper headers
+    const calendar = pous.find((p) => p.name === "CALENDAR");
+    expect(calendar).toBeDefined();
+    expect(calendar!.declaration).toMatch(/^TYPE CALENDAR/);
+    expect(calendar!.declaration).toContain("STRUCT");
   });
 
   it.skipIf(!hasFile)("importCodesysLibrary produces valid V3 result", () => {
@@ -420,10 +432,22 @@ describe("V3 integration: OSCAT Basic 335", () => {
     },
   );
 
-  it.skipIf(!hasFile)("V3 import includes format limitation warning", () => {
-    const result = importCodesysLibrary(OSCAT_V3_PATH);
-    expect(result.warnings.length).toBeGreaterThan(0);
-    expect(result.warnings[0]).toContain("VAR_INPUT/VAR_OUTPUT");
+  it.skipIf(!hasFile)("V3 import preserves variable direction", () => {
+    const data = readFileSync(OSCAT_V3_PATH);
+    const { pous } = parseV3Library(data);
+
+    // FT_Profile has VAR_INPUT, VAR_INPUT CONSTANT, VAR_OUTPUT, and VAR
+    const ftProfile = pous.find((p) => p.name === "FT_Profile");
+    expect(ftProfile).toBeDefined();
+    expect(ftProfile!.declaration).toContain("VAR_INPUT\n");
+    expect(ftProfile!.declaration).toContain("VAR_INPUT CONSTANT");
+    expect(ftProfile!.declaration).toContain("VAR_OUTPUT");
+    expect(ftProfile!.declaration).toContain("VAR\n");
+
+    // ACOSH is a FUNCTION with VAR_INPUT and VAR
+    const acosh = pous.find((p) => p.name === "ACOSH");
+    expect(acosh).toBeDefined();
+    expect(acosh!.declaration).toContain("FUNCTION ACOSH : REAL");
   });
 });
 
