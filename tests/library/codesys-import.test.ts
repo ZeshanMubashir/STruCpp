@@ -10,6 +10,9 @@ import {
   detectFormat,
   parseV23Library,
   isV23Library,
+  parseV3Library,
+  parseStringTable,
+  readLEB128,
   formatPOU,
   pouToSources,
 } from "../../dist/library/codesys-import/index.js";
@@ -60,6 +63,60 @@ describe("isV23Library", () => {
   it("returns false for wrong magic", () => {
     const data = Buffer.from("NotCoDeSys", "ascii");
     expect(isV23Library(data)).toBe(false);
+  });
+});
+
+describe("readLEB128", () => {
+  it("decodes single-byte values (< 128)", () => {
+    const buf = Buffer.from([42]);
+    const [value, offset] = readLEB128(buf, 0);
+    expect(value).toBe(42);
+    expect(offset).toBe(1);
+  });
+
+  it("decodes multi-byte values (>= 128)", () => {
+    // 300 = 0b100101100 → LEB128: 0xAC 0x02
+    const buf = Buffer.from([0xac, 0x02]);
+    const [value, offset] = readLEB128(buf, 0);
+    expect(value).toBe(300);
+    expect(offset).toBe(2);
+  });
+
+  it("decodes zero", () => {
+    const buf = Buffer.from([0]);
+    const [value, offset] = readLEB128(buf, 0);
+    expect(value).toBe(0);
+    expect(offset).toBe(1);
+  });
+
+  it("decodes from non-zero offset", () => {
+    const buf = Buffer.from([0xff, 42, 0xff]);
+    const [value, offset] = readLEB128(buf, 1);
+    expect(value).toBe(42);
+    expect(offset).toBe(2);
+  });
+});
+
+describe("parseStringTable", () => {
+  it("parses a minimal valid string table", () => {
+    // Build: magic(2) + flag(1) + guidLen(1) + guid(4) + entry(idx=1, len=5, "hello")
+    const magic = Buffer.from([0xfa, 0x53]);
+    const flag = Buffer.from([0x00]);
+    const guidLen = Buffer.from([0x04]);
+    const guid = Buffer.from("TEST", "ascii");
+    // Entry: idx=1 (1 byte), length=5 (1 byte), "hello" (5 bytes)
+    const entry = Buffer.from([0x01, 0x05, ...Buffer.from("hello", "utf-8")]);
+    const data = Buffer.concat([magic, flag, guidLen, guid, entry]);
+
+    const result = parseStringTable(data);
+    expect(result.guid).toBe("TEST");
+    expect(result.strings.size).toBe(1);
+    expect(result.strings.get(1)).toBe("hello");
+  });
+
+  it("throws on invalid magic", () => {
+    const data = Buffer.from([0x00, 0x00, 0x00, 0x00]);
+    expect(() => parseStringTable(data)).toThrow("Invalid string table magic");
   });
 });
 
@@ -180,7 +237,9 @@ describe("importCodesysLibrary", () => {
   });
 });
 
-// Integration tests that require the actual OSCAT binary files
+// ============================================================
+// V2.3 Integration Tests (require actual OSCAT binary files)
+// ============================================================
 describe("V2.3 integration: OSCAT Basic 335", () => {
   const hasFile = existsSync(OSCAT_V23_PATH);
 
@@ -263,7 +322,10 @@ describe("V2.3 integration: OSCAT Basic 335", () => {
   );
 });
 
-describe("V3 format detection", () => {
+// ============================================================
+// V3 Integration Tests (require actual OSCAT binary files)
+// ============================================================
+describe("V3 integration: OSCAT Basic 335", () => {
   const hasFile = existsSync(OSCAT_V3_PATH);
 
   it.skipIf(!hasFile)("detects V3 format from real .library file", () => {
@@ -271,13 +333,138 @@ describe("V3 format detection", () => {
     expect(detectFormat(data)).toBe("v3");
   });
 
+  it.skipIf(!hasFile)("extracts POUs from real .library file", () => {
+    const data = readFileSync(OSCAT_V3_PATH);
+    const { pous, guid, warnings } = parseV3Library(data);
+
+    // Should extract a library GUID
+    expect(guid).toBeTruthy();
+    expect(guid).toContain("-"); // UUID format
+
+    // OSCAT Basic 335 should have ~560 items
+    expect(pous.length).toBeGreaterThan(500);
+    expect(pous.length).toBeLessThan(700);
+
+    // Count by type
+    const counts: Record<string, number> = {};
+    for (const p of pous) {
+      counts[p.type] = (counts[p.type] ?? 0) + 1;
+    }
+
+    // Should have functions, FBs, types, and GVLs
+    expect(counts["FUNCTION"]).toBeGreaterThan(300);
+    expect(counts["FUNCTION_BLOCK"]).toBeGreaterThan(100);
+    expect(counts["TYPE"]).toBeGreaterThan(10);
+    expect(counts["GVL"]).toBeGreaterThan(0);
+  });
+
+  it.skipIf(!hasFile)("importCodesysLibrary produces valid V3 result", () => {
+    const result = importCodesysLibrary(OSCAT_V3_PATH);
+    expect(result.success).toBe(true);
+    expect(result.metadata.format).toBe("v3");
+    expect(result.metadata.guid).toBeTruthy();
+    expect(result.metadata.pouCount).toBeGreaterThan(500);
+    expect(result.sources.length).toBeGreaterThan(500);
+
+    // Every source should have a fileName and non-empty source
+    for (const src of result.sources) {
+      expect(src.fileName).toBeTruthy();
+      expect(src.source.length).toBeGreaterThan(0);
+    }
+
+    // Check that known FBs are present with correct type
+    const alarm2 = result.sources.find((s) => s.fileName === "ALARM_2.st");
+    expect(alarm2).toBeDefined();
+    expect(alarm2!.source).toContain("FUNCTION_BLOCK ALARM_2");
+    expect(alarm2!.source).toContain("END_FUNCTION_BLOCK");
+
+    // Check that known functions are present
+    const acosh = result.sources.find((s) => s.fileName === "ACOSH.st");
+    expect(acosh).toBeDefined();
+    expect(acosh!.source).toContain("FUNCTION ACOSH : REAL");
+    expect(acosh!.source).toContain("END_FUNCTION");
+
+    // Check that types are present
+    const constLang = result.sources.find(
+      (s) => s.fileName === "CONSTANTS_LANGUAGE.st",
+    );
+    expect(constLang).toBeDefined();
+    expect(constLang!.source).toContain("TYPE CONSTANTS_LANGUAGE");
+  });
+
   it.skipIf(!hasFile)(
-    "importCodesysLibrary returns not-yet-supported for V3",
+    "V3 POU counts are comparable to V2.3 extraction",
     () => {
-      const result = importCodesysLibrary(OSCAT_V3_PATH);
-      // Phase 1: V3 is not yet supported
-      expect(result.success).toBe(false);
-      expect(result.errors[0]).toContain("V3");
+      const v23Result = importCodesysLibrary(OSCAT_V23_PATH);
+      const v3Result = importCodesysLibrary(OSCAT_V3_PATH);
+
+      // Both should succeed
+      expect(v23Result.success).toBe(true);
+      expect(v3Result.success).toBe(true);
+
+      // V3 typically extracts slightly more POUs (some extras like TOF_1, TP_1, etc.)
+      // but the core counts should be similar
+      const v23fn = v23Result.metadata.counts["FUNCTION"] ?? 0;
+      const v3fn = v3Result.metadata.counts["FUNCTION"] ?? 0;
+      expect(v3fn).toBe(v23fn); // Functions should match exactly
+
+      const v23fb = v23Result.metadata.counts["FUNCTION_BLOCK"] ?? 0;
+      const v3fb = v3Result.metadata.counts["FUNCTION_BLOCK"] ?? 0;
+      // V3 has a few more FBs (TOF_1, TP_1, etc.)
+      expect(v3fb).toBeGreaterThanOrEqual(v23fb);
+      expect(v3fb).toBeLessThan(v23fb + 20);
+
+      const v23types = v23Result.metadata.counts["TYPE"] ?? 0;
+      const v3types = v3Result.metadata.counts["TYPE"] ?? 0;
+      expect(v3types).toBe(v23types); // Types should match exactly
     },
   );
+
+  it.skipIf(!hasFile)("V3 import includes format limitation warning", () => {
+    const result = importCodesysLibrary(OSCAT_V3_PATH);
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.warnings[0]).toContain("VAR_INPUT/VAR_OUTPUT");
+  });
+});
+
+// ============================================================
+// CLI Integration Test (end-to-end --import-lib)
+// ============================================================
+describe("CLI --import-lib", () => {
+  const hasFile = existsSync(OSCAT_V23_PATH);
+
+  it.skipIf(!hasFile)("shows extraction summary for V2.3 file", () => {
+    const { execFileSync } = require("child_process");
+    try {
+      const output = execFileSync(
+        "node",
+        [
+          "dist/cli.js",
+          "--import-lib",
+          OSCAT_V23_PATH,
+          "-o",
+          "/tmp/stlib_cli_test/",
+          "--lib-name",
+          "oscat-cli-test",
+          "-L",
+          "libs/",
+          "-D",
+          "STRING_LENGTH=256",
+          "-D",
+          "LIST_LENGTH=100",
+        ],
+        { encoding: "utf-8", timeout: 120000 },
+      );
+      // Should show extraction summary even if compilation fails
+      // (OSCAT uses POINTER TO which STruC++ doesn't support yet)
+      expect(output).toContain("Format: CODESYS V2.3");
+      expect(output).toContain("Extracted 555 items");
+    } catch (err: unknown) {
+      const execErr = err as { stdout?: string; stderr?: string };
+      const combined = (execErr.stdout ?? "") + (execErr.stderr ?? "");
+      // Compilation may fail for OSCAT, but extraction should still work
+      expect(combined).toContain("Format: CODESYS V2.3");
+      expect(combined).toContain("Extracted 555 items");
+    }
+  });
 });

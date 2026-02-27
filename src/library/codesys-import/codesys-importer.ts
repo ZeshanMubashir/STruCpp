@@ -13,6 +13,7 @@ import type {
   ExtractedPOU,
 } from "./types.js";
 import { isV23Library, parseV23Library } from "./v23-parser.js";
+import { parseV3Library } from "./v3-parser.js";
 import { pouToSources } from "./pou-formatter.js";
 
 /** ZIP local file header magic (PK\x03\x04). */
@@ -83,17 +84,7 @@ export function importCodesysLibrary(filePath: string): CodesysImportResult {
     return importV23(data);
   }
 
-  // V3 format — placeholder for Phase 2
-  return {
-    success: false,
-    sources: [],
-    metadata: { format: "v3", pouCount: 0, counts: {} },
-    warnings: [],
-    errors: [
-      "CODESYS V3 (.library) import is not yet supported. " +
-        "Use a CODESYS V2.3 (.lib) file, or convert the library in CODESYS.",
-    ],
-  };
+  return importV3(data);
 }
 
 /**
@@ -119,6 +110,34 @@ function importV23(data: Buffer): CodesysImportResult {
     success: true,
     sources,
     metadata: { format: "v23", pouCount: pous.length, counts },
+    warnings,
+    errors: [],
+  };
+}
+
+/**
+ * Import a CODESYS V3 library from pre-read ZIP binary data.
+ */
+function importV3(data: Buffer): CodesysImportResult {
+  const { pous, guid, warnings } = parseV3Library(data);
+
+  if (pous.length === 0) {
+    return {
+      success: false,
+      sources: [],
+      metadata: { format: "v3", pouCount: 0, guid, counts: {} },
+      warnings,
+      errors: ["No POUs found in library archive."],
+    };
+  }
+
+  const sources = pouToSources(pous);
+  const counts = countByType(pous);
+
+  return {
+    success: true,
+    sources,
+    metadata: { format: "v3", pouCount: pous.length, guid, counts },
     warnings,
     errors: [],
   };

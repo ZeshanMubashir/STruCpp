@@ -11,3 +11,9 @@ export type {
 } from "./types.js";
 export { formatPOU, pouToSources } from "./pou-formatter.js";
 export { parseV23Library, isV23Library } from "./v23-parser.js";
+export {
+  parseV3Library,
+  parseStringTable,
+  readLEB128,
+  decodeObjectIndices,
+} from "./v3-parser.js";
