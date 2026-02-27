@@ -267,7 +267,7 @@ Library compilation:
 
 CODESYS import:
   --import-lib <path>       Import a CODESYS V2.3 (.lib) or V3 (.library) file
-                            Requires --lib-name and -o; produces a .stlib archive
+                            Requires --lib-name; -o sets output dir (default: cwd)
 
 Testing:
   --test <file> [file2...]   Run tests from test file(s) against source files
@@ -931,12 +931,8 @@ function importLibMode(options: CLIOptions): void {
         : `${error.line ?? 0}`;
       console.error(`  ${location}: error: ${error.message}`);
     }
-    // Still write the extracted sources so the user can inspect/fix them
     console.error(
       "\nNote: Extracted ST sources may need manual adjustments for compilation.",
-    );
-    console.error(
-      "  Use --import-lib with --extract-only (if available) to get raw .st files.",
     );
     process.exit(1);
   }

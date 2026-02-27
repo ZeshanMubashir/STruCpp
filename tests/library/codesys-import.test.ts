@@ -3,7 +3,8 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, writeFileSync, unlinkSync } from "fs";
+import { execFileSync } from "child_process";
 import { resolve } from "path";
 import {
   importCodesysLibrary,
@@ -18,15 +19,14 @@ import {
 } from "../../dist/library/codesys-import/index.js";
 import type { ExtractedPOU } from "../../dist/library/codesys-import/index.js";
 
-// Path to real CODESYS library files for integration tests
-const OSCAT_V23_PATH = resolve(
-  process.env.HOME ?? "~",
-  "Downloads/oscat_experiments/oscat_basic_335.lib",
-);
+// Path to CODESYS library fixtures checked into the repository
+const FIXTURES_DIR = resolve(__dirname, "../fixtures/codesys");
+const OSCAT_V23_PATH = resolve(FIXTURES_DIR, "oscat_basic_335.lib");
 const OSCAT_V3_PATH = resolve(
-  process.env.HOME ?? "~",
-  "Downloads/oscat_experiments/oscat_basic_335_codesys3.library",
+  FIXTURES_DIR,
+  "oscat_basic_335_codesys3.library",
 );
+const V23_REFERENCE_DIR = resolve(FIXTURES_DIR, "v23-reference");
 
 describe("detectFormat", () => {
   it("detects V2.3 format from CoDeSys+ magic", () => {
@@ -223,8 +223,6 @@ describe("importCodesysLibrary", () => {
   });
 
   it("returns error for unrecognized format", () => {
-    // Create a temp file with garbage content
-    const { writeFileSync, unlinkSync } = require("fs");
     const tmpPath = "/tmp/test_garbage.lib";
     writeFileSync(tmpPath, "GARBAGE_DATA_NOT_CODESYS");
     try {
@@ -238,12 +236,10 @@ describe("importCodesysLibrary", () => {
 });
 
 // ============================================================
-// V2.3 Integration Tests (require actual OSCAT binary files)
+// V2.3 Integration Tests (OSCAT binary fixtures in repo)
 // ============================================================
 describe("V2.3 integration: OSCAT Basic 335", () => {
-  const hasFile = existsSync(OSCAT_V23_PATH);
-
-  it.skipIf(!hasFile)("extracts POUs from real .lib file", () => {
+  it("extracts POUs from real .lib file", () => {
     const data = readFileSync(OSCAT_V23_PATH);
     const { pous, warnings } = parseV23Library(data);
 
@@ -272,7 +268,7 @@ describe("V2.3 integration: OSCAT Basic 335", () => {
     expect(acosh!.implementation).toContain("LN");
   });
 
-  it.skipIf(!hasFile)("importCodesysLibrary produces valid sources", () => {
+  it("importCodesysLibrary produces valid sources", () => {
     const result = importCodesysLibrary(OSCAT_V23_PATH);
     expect(result.success).toBe(true);
     expect(result.metadata.format).toBe("v23");
@@ -292,48 +288,34 @@ describe("V2.3 integration: OSCAT Basic 335", () => {
     expect(acoshSrc!.source).toContain("END_FUNCTION");
   });
 
-  it.skipIf(!hasFile)(
-    "extracted source matches previously extracted files",
-    () => {
-      const result = importCodesysLibrary(OSCAT_V23_PATH);
-      expect(result.success).toBe(true);
+  it("extracted source matches reference files", () => {
+    const result = importCodesysLibrary(OSCAT_V23_PATH);
+    expect(result.success).toBe(true);
 
-      // Compare with the Python parser's output for a few known functions
-      const expectedDir = resolve(
-        process.env.HOME ?? "~",
-        "Downloads/oscat_experiments/oscat_basic_v23_extracted",
-      );
-      if (!existsSync(expectedDir)) return;
-
-      const testNames = ["ACOSH", "ALARM_2", "DAY_OF_YEAR", "FT_AVG"];
-      for (const name of testNames) {
-        const expected = readFileSync(
-          resolve(expectedDir, `${name}.st`),
-          "utf-8",
-        );
-        const actual = result.sources.find((s) => s.fileName === `${name}.st`);
-        expect(actual, `Missing ${name}.st`).toBeDefined();
-        // Normalize for comparison
-        const normExpected = expected.replace(/\r\n/g, "\n").trim();
-        const normActual = actual!.source.trim();
-        expect(normActual).toBe(normExpected);
-      }
-    },
-  );
+    const testNames = ["ACOSH", "ALARM_2", "DAY_OF_YEAR", "FT_AVG"];
+    for (const name of testNames) {
+      const refPath = resolve(V23_REFERENCE_DIR, `${name}.st`);
+      const expected = readFileSync(refPath, "utf-8");
+      const actual = result.sources.find((s) => s.fileName === `${name}.st`);
+      expect(actual, `Missing ${name}.st`).toBeDefined();
+      // Normalize for comparison
+      const normExpected = expected.replace(/\r\n/g, "\n").trim();
+      const normActual = actual!.source.trim();
+      expect(normActual).toBe(normExpected);
+    }
+  });
 });
 
 // ============================================================
-// V3 Integration Tests (require actual OSCAT binary files)
+// V3 Integration Tests (OSCAT binary fixtures in repo)
 // ============================================================
 describe("V3 integration: OSCAT Basic 335", () => {
-  const hasFile = existsSync(OSCAT_V3_PATH);
-
-  it.skipIf(!hasFile)("detects V3 format from real .library file", () => {
+  it("detects V3 format from real .library file", () => {
     const data = readFileSync(OSCAT_V3_PATH);
     expect(detectFormat(data)).toBe("v3");
   });
 
-  it.skipIf(!hasFile)("extracts POUs from real .library file", () => {
+  it("extracts POUs from real .library file", () => {
     const data = readFileSync(OSCAT_V3_PATH);
     const { pous, guid, warnings } = parseV3Library(data);
 
@@ -370,7 +352,7 @@ describe("V3 integration: OSCAT Basic 335", () => {
     expect(calendar!.declaration).toContain("STRUCT");
   });
 
-  it.skipIf(!hasFile)("importCodesysLibrary produces valid V3 result", () => {
+  it("importCodesysLibrary produces valid V3 result", () => {
     const result = importCodesysLibrary(OSCAT_V3_PATH);
     expect(result.success).toBe(true);
     expect(result.metadata.format).toBe("v3");
@@ -404,35 +386,32 @@ describe("V3 integration: OSCAT Basic 335", () => {
     expect(constLang!.source).toContain("TYPE CONSTANTS_LANGUAGE");
   });
 
-  it.skipIf(!hasFile)(
-    "V3 POU counts are comparable to V2.3 extraction",
-    () => {
-      const v23Result = importCodesysLibrary(OSCAT_V23_PATH);
-      const v3Result = importCodesysLibrary(OSCAT_V3_PATH);
+  it("V3 POU counts are comparable to V2.3 extraction", () => {
+    const v23Result = importCodesysLibrary(OSCAT_V23_PATH);
+    const v3Result = importCodesysLibrary(OSCAT_V3_PATH);
 
-      // Both should succeed
-      expect(v23Result.success).toBe(true);
-      expect(v3Result.success).toBe(true);
+    // Both should succeed
+    expect(v23Result.success).toBe(true);
+    expect(v3Result.success).toBe(true);
 
-      // V3 typically extracts slightly more POUs (some extras like TOF_1, TP_1, etc.)
-      // but the core counts should be similar
-      const v23fn = v23Result.metadata.counts["FUNCTION"] ?? 0;
-      const v3fn = v3Result.metadata.counts["FUNCTION"] ?? 0;
-      expect(v3fn).toBe(v23fn); // Functions should match exactly
+    // V3 typically extracts slightly more POUs (some extras like TOF_1, TP_1, etc.)
+    // but the core counts should be similar
+    const v23fn = v23Result.metadata.counts["FUNCTION"] ?? 0;
+    const v3fn = v3Result.metadata.counts["FUNCTION"] ?? 0;
+    expect(v3fn).toBe(v23fn); // Functions should match exactly
 
-      const v23fb = v23Result.metadata.counts["FUNCTION_BLOCK"] ?? 0;
-      const v3fb = v3Result.metadata.counts["FUNCTION_BLOCK"] ?? 0;
-      // V3 has a few more FBs (TOF_1, TP_1, etc.)
-      expect(v3fb).toBeGreaterThanOrEqual(v23fb);
-      expect(v3fb).toBeLessThan(v23fb + 20);
+    const v23fb = v23Result.metadata.counts["FUNCTION_BLOCK"] ?? 0;
+    const v3fb = v3Result.metadata.counts["FUNCTION_BLOCK"] ?? 0;
+    // V3 has a few more FBs (TOF_1, TP_1, etc.)
+    expect(v3fb).toBeGreaterThanOrEqual(v23fb);
+    expect(v3fb).toBeLessThan(v23fb + 20);
 
-      const v23types = v23Result.metadata.counts["TYPE"] ?? 0;
-      const v3types = v3Result.metadata.counts["TYPE"] ?? 0;
-      expect(v3types).toBe(v23types); // Types should match exactly
-    },
-  );
+    const v23types = v23Result.metadata.counts["TYPE"] ?? 0;
+    const v3types = v3Result.metadata.counts["TYPE"] ?? 0;
+    expect(v3types).toBe(v23types); // Types should match exactly
+  });
 
-  it.skipIf(!hasFile)("V3 import preserves variable direction", () => {
+  it("V3 import preserves variable direction", () => {
     const data = readFileSync(OSCAT_V3_PATH);
     const { pous } = parseV3Library(data);
 
@@ -455,10 +434,7 @@ describe("V3 integration: OSCAT Basic 335", () => {
 // CLI Integration Test (end-to-end --import-lib)
 // ============================================================
 describe("CLI --import-lib", () => {
-  const hasFile = existsSync(OSCAT_V23_PATH);
-
-  it.skipIf(!hasFile)("shows extraction summary for V2.3 file", () => {
-    const { execFileSync } = require("child_process");
+  it("shows extraction summary for V2.3 file", () => {
     try {
       const output = execFileSync(
         "node",

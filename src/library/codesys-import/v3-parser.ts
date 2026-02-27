@@ -52,6 +52,7 @@ const GVL_DECL_RE = /^VAR_GLOBAL/;
 /**
  * Read a LEB128 (unsigned) variable-length integer from a buffer.
  * Returns the decoded value and the new offset.
+ * Limited to 28-bit shift to stay within JS 32-bit signed integer range.
  */
 export function readLEB128(data: Buffer, offset: number): [number, number] {
   let value = 0;
@@ -62,6 +63,7 @@ export function readLEB128(data: Buffer, offset: number): [number, number] {
     value |= (byte & 0x7f) << shift;
     shift += 7;
     if (!(byte & 0x80)) break;
+    if (shift >= 28) break; // Prevent overflow beyond 32-bit signed range
   }
   return [value, offset];
 }
@@ -227,6 +229,7 @@ function extractFromRecords(
 function classifyPOU(
   declaration: string,
   implementation: string,
+  gvlCounter: { value: number },
 ): ExtractedPOU | null {
   const lines = declaration.split("\n");
 
@@ -258,7 +261,7 @@ function classifyPOU(
     if (GVL_DECL_RE.test(line)) {
       return {
         type: "GVL",
-        name: `GVL_${Date.now()}`,
+        name: `GVL_${gvlCounter.value++}`,
         declaration,
         implementation: "",
         offset: 0,
@@ -469,7 +472,7 @@ export function parseV3Library(data: Buffer): {
     const { declaration, implementation } = extracted;
 
     // Try standard POU classification first
-    let pou = classifyPOU(declaration, implementation);
+    let pou = classifyPOU(declaration, implementation, gvlCounter);
 
     // Try bare STRUCT → TYPE matching
     if (!pou) {
