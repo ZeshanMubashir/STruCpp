@@ -1,6 +1,6 @@
 # STruC++ Architecture
 
-STruC++ is an IEC 61131-3 Structured Text to C++17 compiler written in TypeScript. It replaces MatIEC in the OpenPLC toolchain with a cleaner, multi-pass architecture that produces readable, debuggable C++ output.
+STruC++ is an IEC 61131-3 Structured Text to C++17 compiler written in TypeScript. It produces readable, debuggable C++ output with line mapping back to the original ST source.
 
 ## Compilation Pipeline
 
@@ -32,7 +32,7 @@ Code Generator               src/backend/codegen.ts
 Output
 ```
 
-Each phase produces a well-defined intermediate result. Errors at any phase abort the pipeline and return diagnostics with file/line/column context.
+Each stage produces a well-defined intermediate result. Errors at any stage abort the pipeline and return diagnostics with file/line/column context.
 
 ## Module Map
 
@@ -92,7 +92,7 @@ src/
 
 ### Lexer
 
-Chevrotain tokenizer with case-insensitive keywords. All keywords use `LONGER_ALT = Identifier` to prevent keyword/identifier conflicts. Custom pattern matchers handle time literals (`T#1h2m3s`), nested comment blocks (`(* ... (* ... *) ... *)`), and pragma blocks (`{external ...}`).
+Chevrotain tokenizer with case-insensitive keywords. All keywords use `LONGER_ALT = Identifier` to prevent keyword/identifier conflicts. Custom pattern matchers handle time literals (`T#1h2m3s`), typed literals (`DINT#42`), nested comment blocks (`(* ... (* ... *) ... *)`), and pragma blocks (`{external ...}`).
 
 ### Parser
 
@@ -100,9 +100,9 @@ LL(3) Chevrotain parser with error recovery. Grammar covers the full IEC 61131-3
 
 - **POUs**: PROGRAM, FUNCTION, FUNCTION_BLOCK, INTERFACE
 - **Variables**: VAR, VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, VAR_EXTERNAL, VAR_GLOBAL (with CONSTANT, RETAIN, AT modifiers)
-- **Types**: STRUCT, ENUM, ARRAY (1D/2D), SUBRANGE, TYPE aliases, REF_TO/REFERENCE_TO
-- **Statements**: assignment, IF/ELSIF/ELSE, FOR/WHILE/REPEAT, CASE, EXIT, RETURN, function/method calls, DELETE
-- **Expressions**: full operator precedence (arithmetic, comparison, logical, bitwise, shift, power, unary), function calls, method calls, array/field access, REF/DREF, NEW
+- **Types**: STRUCT, ENUM, ARRAY (1D/2D/3D), SUBRANGE, TYPE aliases, REF_TO, REFERENCE_TO, POINTER TO
+- **Statements**: assignment, IF/ELSIF/ELSE, FOR/WHILE/REPEAT, CASE, EXIT, RETURN, function/method calls, __NEW, __DELETE
+- **Expressions**: full operator precedence (arithmetic, comparison, logical, bitwise, shift, power, unary), function calls, method calls, array/field access, REF/DREF, typed literals
 - **OOP**: methods, properties (GET/SET), inheritance (EXTENDS), interfaces (IMPLEMENTS), visibility (PUBLIC/PRIVATE/PROTECTED), ABSTRACT/FINAL/OVERRIDE
 
 Ambiguities are resolved with GATE predicates and `IGNORE_AMBIGUITIES: true` on OR alternatives.
@@ -115,13 +115,13 @@ The top-level `CompilationUnit` contains arrays of programs, functions, function
 
 ## Semantic Analysis
 
-Three-phase analysis orchestrated by `SemanticAnalyzer`:
+Three-pass analysis orchestrated by `SemanticAnalyzer`:
 
-**Phase A: Symbol Table Building** -- Walks all POUs, registers variables/functions/FBs/types into scoped symbol tables. Case-insensitive lookup (IEC convention). Detects duplicate declarations.
+**Pass A: Symbol Table Building** -- Walks all POUs, registers variables/functions/FBs/types into scoped symbol tables. Case-insensitive lookup (IEC convention). Detects duplicate declarations.
 
-**Phase B: Type Resolution** -- Walks all expressions and sets `resolvedType` on each AST node. Infers types from literals, variable declarations, operator rules, function return types, and struct/array access chains.
+**Pass B: Type Resolution** -- Walks all expressions and sets `resolvedType` on each AST node. Infers types from literals (including typed literals like `DINT#42`), variable declarations, operator rules, function return types, and struct/array access chains.
 
-**Phase C: Validation** -- Checks assignment compatibility, condition types (must be BOOL), FOR loop bound types, CASE selector types (ANY_INT, ANY_BIT, or enum), function argument constraints, located variable address formats, and VAR_EXTERNAL references.
+**Pass C: Validation** -- Checks assignment compatibility, condition types (must be BOOL), FOR loop bound types, CASE selector types (ANY_INT, ANY_BIT, or enum), function argument constraints, located variable address formats, and VAR_EXTERNAL references.
 
 ### Type System
 
@@ -130,6 +130,7 @@ Three-phase analysis orchestrated by `SemanticAnalyzer`:
 - Implicit widening: SINT -> INT -> DINT -> LINT
 - Narrowing conversions produce warnings, not errors (CODESYS compatibility)
 - Untyped numeric literals are polymorphic (assignable to any numeric type)
+- Typed literals (`INT#5`, `DINT#42`) resolve to their declared type
 - Integer-to-bit implicit conversion when target bits >= source bits
 - Reference/pointer assignments skip compatibility checks
 
@@ -149,14 +150,16 @@ Generates two files per compilation: `.hpp` (declarations) and `.cpp` (implement
 | REAL | `float` | `IECVar<float>` |
 | STRING | `IECString<N>` | `IECVar<IECString<N>>` |
 | ARRAY[1..10] OF INT | `Array1D<int16_t, 1, 10>` | - |
+| POINTER TO INT | `IEC_Ptr<int16_t>` | - |
+| REF_TO INT | `IEC_REF_TO<int16_t>` | - |
 | User struct | `struct Name { ... }` | `IECVar<Name>` |
 
-All program/function variables are wrapped in `IECVar<T>` which provides transparent forcing support (an OpenPLC feature). Struct fields use IECVar-wrapped elementary types for per-field forcing.
+All program/function variables are wrapped in `IECVar<T>` which provides transparent variable forcing support. Struct fields use IECVar-wrapped elementary types for per-field forcing.
 
 ### POU Generation
 
 - **Functions**: C++ free functions with INPUT params by value, OUTPUT/IN_OUT by reference
-- **Function Blocks**: C++ classes with member variables, `invoke()` method for the FB body, and generated methods/properties
+- **Function Blocks**: C++ classes with member variables, `invoke()` method for the FB body, and generated methods/properties. Supports ABSTRACT (pure virtual), FINAL, EXTENDS (inheritance), and IMPLEMENTS (interfaces).
 - **Programs**: C++ classes with global instances, connected to CONFIGURATION/RESOURCE/TASK structure
 
 ### Line Mapping

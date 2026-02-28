@@ -15,6 +15,7 @@ STruC++ implements the Structured Text (ST) language from IEC 61131-3. This docu
 | DATE | Supported | |
 | TIME_OF_DAY | Supported | |
 | DATE_AND_TIME | Supported | |
+| LTIME, LDATE, LTOD, LDT | Supported | 64-bit time types with nanosecond precision |
 | STRING | Supported | Parameterized length: STRING(N), default 254 |
 | WSTRING | Supported | Parameterized length: WSTRING(N) |
 | CHAR, WCHAR | Supported | |
@@ -28,18 +29,18 @@ STruC++ implements the Structured Text (ST) language from IEC 61131-3. This docu
 | Enumerations | Supported | With optional base type |
 | ARRAY (1D) | Supported | Arbitrary bounds: ARRAY[1..10] OF INT |
 | ARRAY (2D) | Supported | ARRAY[1..3, 1..4] OF REAL |
+| ARRAY (3D) | Supported | ARRAY[1..3, 1..4, 1..5] OF INT |
 | ARRAY[*] (VLA) | Supported | Variable-length array parameters |
 | Subranges | Supported | Runtime validation |
-| REF_TO | Supported | IEC reference type |
-| REFERENCE_TO | Supported | CODESYS implicit dereference variant |
+| REF_TO | Supported | IEC reference type (explicit dereference) |
+| REFERENCE_TO | Supported | CODESYS reference type (implicit dereference) |
+| POINTER TO | Supported | CODESYS pointer type with dereference via ^ |
 
-### Pending Types
+### Not Implemented
 
-| Type | Status | Notes |
-|------|--------|-------|
-| POINTER TO | Pending | CODESYS extension (Phase 6) |
-| UNION | Pending | CODESYS extension (Phase 6) |
-| LTIME, LDATE, LTOD, LDT | Pending | 64-bit time types (Phase 6) |
+| Type | Notes |
+|------|-------|
+| UNION | CODESYS extension |
 
 ## Program Organization Units
 
@@ -48,7 +49,7 @@ STruC++ implements the Structured Text (ST) language from IEC 61131-3. This docu
 | PROGRAM | Supported | With CONFIGURATION/RESOURCE/TASK structure |
 | FUNCTION | Supported | With return type, all parameter modes |
 | FUNCTION_BLOCK | Supported | Instantiation, invocation, member access |
-| INTERFACE | Supported | Method/property signatures |
+| INTERFACE | Supported | Method and property signatures |
 
 ## Variable Declarations
 
@@ -61,9 +62,9 @@ STruC++ implements the Structured Text (ST) language from IEC 61131-3. This docu
 | VAR_EXTERNAL | Supported | External references to VAR_GLOBAL |
 | VAR_GLOBAL | Supported | Global variables |
 | CONSTANT | Supported | Compile-time constants |
-| RETAIN | Supported | Persistent variables |
+| RETAIN | Supported | Tracked in retain variable table |
 | NON_RETAIN | Supported | |
-| AT %IX0.0 | Supported | Located variables (I/Q/M areas, all sizes) |
+| AT %IX0.0 | Supported | Located variables (I/Q/M areas, X/B/W/D/L sizes) |
 | Multiple names | Supported | `a, b, c : INT := 0;` |
 | Initialization | Supported | `:= expression` |
 
@@ -85,8 +86,9 @@ STruC++ implements the Structured Text (ST) language from IEC 61131-3. This docu
 | Method call | `obj.method(args)` | Supported |
 | Array access | `arr[i]`, `arr[i, j]` | Supported |
 | Field access | `struct.field` | Supported |
-| NEW | `__NEW(type)` | Supported (CODESYS extension) |
-| DELETE | `__DELETE(ptr)` | Supported (CODESYS extension) |
+| Typed literals | `INT#5`, `DINT#42`, `REAL#3.14` | Supported |
+| NEW | `__NEW(type)`, `__NEW(type, size)` | Supported |
+| DELETE | `__DELETE(ptr)` | Supported |
 
 ## Control Structures
 
@@ -104,13 +106,13 @@ STruC++ implements the Structured Text (ST) language from IEC 61131-3. This docu
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Methods | Supported | On FUNCTION_BLOCK |
-| Properties (GET/SET) | Supported | |
+| Methods | Supported | On FUNCTION_BLOCK, with return types |
+| Properties (GET/SET) | Supported | Virtual getter/setter methods in C++ |
 | Inheritance (EXTENDS) | Supported | Single inheritance |
-| Interfaces (IMPLEMENTS) | Supported | Multiple interfaces |
-| ABSTRACT | Supported | Abstract FB/method |
-| FINAL | Supported | Sealed FB/method |
-| OVERRIDE | Supported | Method override |
+| Interfaces (IMPLEMENTS) | Supported | Multiple interfaces, generates C++ abstract classes |
+| ABSTRACT | Supported | Abstract FB (no instantiation) and abstract methods (pure virtual) |
+| FINAL | Supported | Sealed FB and methods |
+| OVERRIDE | Supported | Method override with C++ override specifier |
 | PUBLIC/PRIVATE/PROTECTED | Supported | Access modifiers |
 | THIS | Supported | Self-reference in methods |
 
@@ -128,6 +130,7 @@ All IEC 61131-3 standard functions are implemented in the C++ runtime:
 | Bit Shift | SHL, SHR, ROL, ROR |
 | Type Conversion | *_TO_* (INT_TO_REAL, DINT_TO_STRING, etc.) |
 | String | LEN, LEFT, RIGHT, MID, CONCAT, FIND, REPLACE, INSERT, DELETE, UPPER, LOWER, TRIM |
+| System | ADR, SIZEOF |
 
 ## Standard Function Blocks
 
@@ -161,27 +164,24 @@ Bundled as a compiled `.stlib` library (`libs/iec-standard-fb.stlib`):
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Nested comments `(* (* *) *)` | Supported | |
+| Nested comments `(* (* *) *)` | Supported | Arbitrary nesting depth |
 | Pragmas `{...}` | Supported | Including `{external}` for inline C++ |
 | Inline C++ | Supported | Via `{external ...}` pragma blocks |
 | Inline function calls | Supported | Via `{call ...}` pragma |
 | Global constants (`-D`) | Supported | CLI `-D NAME=VALUE`, emits `constexpr` |
+| Dynamic memory | Supported | `__NEW(type)`, `__DELETE(ptr)` |
+| POINTER TO | Supported | Full pointer type with dereference |
+| Typed literals | Supported | `INT#5`, `DINT#42`, `REAL#3.14` |
 
-## Pending Features (Phase 6+)
+## Not Yet Implemented
 
-These features are planned but not yet implemented:
-
-| Feature | Phase | Notes |
-|---------|-------|-------|
-| POINTER TO | 6 | CODESYS pointer type |
-| UNION | 6 | CODESYS union type |
-| FB_Init / FB_Exit | 6 | Constructor/destructor lifecycle |
-| __QUERYINTERFACE | 6 | Runtime interface query |
-| Bit access (var.%X0) | 6 | Individual bit addressing |
-| Typed literals (INT#5) | 6 | Explicit type prefix on literals |
-| LTIME, LDATE, LTOD, LDT | 6 | 64-bit time types |
-| ACTION | 6 | Named action blocks |
-| TRY/CATCH/FINALLY | 6 | Exception handling |
-| Generics | 6 | Parameterized types |
-| Conditional compilation | 6 | Preprocessor-style conditionals |
-| OpenPLC runtime integration | 7 | I/O binding, task scheduler |
+| Feature | Notes |
+|---------|-------|
+| UNION | CODESYS union type |
+| FB_Init / FB_Exit | Constructor/destructor lifecycle methods |
+| __QUERYINTERFACE | Runtime interface query |
+| Bit access (var.%X0) | Individual bit addressing |
+| ACTION blocks | Named action blocks |
+| TRY/CATCH/FINALLY | Exception handling |
+| Generics | Parameterized types |
+| Conditional compilation | Preprocessor-style conditionals |

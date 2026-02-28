@@ -31,15 +31,19 @@ using REAL_t  = float;
 using LREAL_t = double;
 
 // Time/date (nanosecond precision, stored as int64_t)
-using TIME_t = int64_t;
-using DATE_t = int64_t;
-using TOD_t  = int64_t;  // TIME_OF_DAY
-using DT_t   = int64_t;  // DATE_AND_TIME
+using TIME_t  = int64_t;
+using DATE_t  = int64_t;
+using TOD_t   = int64_t;  // TIME_OF_DAY
+using DT_t    = int64_t;  // DATE_AND_TIME
+using LTIME_t = int64_t;  // 64-bit time (nanosecond precision)
+using LDATE_t = int64_t;
+using LTOD_t  = int64_t;
+using LDT_t   = int64_t;
 ```
 
 ## IECVar Wrapper (`iec_var.hpp`)
 
-`IECVar<T>` wraps every program variable to support OpenPLC's variable forcing mechanism:
+`IECVar<T>` wraps every program variable to support variable forcing:
 
 ```cpp
 template<typename T>
@@ -89,7 +93,7 @@ Array elements store raw types; the calling variable wraps the entire array.
 
 ### Located Variables
 
-Located variables (`AT %IX0.0`) use `raw_ptr()` to bind to the OpenPLC I/O image table. The runtime connects the variable's storage to the appropriate memory-mapped region at startup.
+Located variables (`AT %IX0.0`) use `raw_ptr()` to bind to an I/O image table at runtime. The code generator produces a descriptor array (`__located_vars_[]`) with metadata for each located variable (area, size, byte/bit indices) and accessor methods (`getLocatedVars()`, `getLocatedVarCount()`).
 
 ## Type Traits (`iec_traits.hpp`)
 
@@ -133,28 +137,66 @@ class Array1D;
 
 template<typename T, int L1, int U1, int L2, int U2>
 class Array2D;
+
+template<typename T, int L1, int U1, int L2, int U2, int L3, int U3>
+class Array3D;
 ```
 
 IEC arrays use 1-based (or arbitrary-based) indexing. The template parameters encode bounds for compile-time size calculation. Bounds checking is performed at runtime in debug builds.
 
-## Composite Types (`iec_struct.hpp`, `iec_enum.hpp`, `iec_subrange.hpp`)
+## Pointer and Reference Types
 
-- **Structs**: Plain C++ structs with IECVar-wrapped fields
-- **Enums**: C++ `enum class` with configurable underlying type
-- **Subranges**: Runtime range validation on assignment
+### POINTER TO (`iec_pointer.hpp`)
 
-## Time Types (`iec_time.hpp`, `iec_date.hpp`, `iec_dt.hpp`, `iec_tod.hpp`)
+```cpp
+template<typename T>
+class IEC_Ptr {
+    T* ptr_;
+public:
+    T& operator*();        // Dereference
+    T* operator->();
+    IEC_Ptr& operator=(T* p);
+    explicit operator bool() const;  // Null check
+};
+```
 
-All time/date types use nanosecond-precision `int64_t` storage. Arithmetic operations (`+`, `-`, comparison) are defined. Time literal parsing handles the IEC format: `T#1h2m3s4ms5us6ns`.
+Supports CODESYS-style `POINTER TO` declarations with dereference via `^` operator.
 
-## Pointer Support (`iec_pointer.hpp`, `iec_ptr.hpp`)
+### REF_TO and REFERENCE_TO (`iec_ptr.hpp`)
 
-- `iec_pointer.hpp`: POINTER TO type support for CODESYS compatibility
-- `iec_ptr.hpp`: Pointer-to-integer conversions (ADR function)
+```cpp
+template<typename T> class IEC_REF_TO;       // Explicit dereference with ^
+template<typename T> class IEC_REFERENCE_TO;  // Implicit dereference (CODESYS style)
+```
+
+`REF_TO` follows the IEC standard (requires explicit dereference). `REFERENCE_TO` follows the CODESYS convention (implicit dereference -- the reference behaves like the referenced variable).
+
+### ADR Function
+
+`ADR(variable)` returns the memory address of a variable as `ULINT`. Implemented in `iec_std_lib.hpp`.
 
 ## Memory Management (`iec_memory.hpp`)
 
-`__NEW` and `__DELETE` operations for dynamic allocation of function block instances and arrays (CODESYS extension).
+Dynamic allocation for CODESYS compatibility:
+
+```cpp
+template<typename T> T* iec_new();                  // __NEW(Type)
+template<typename T> T* iec_new_array(size_t n);    // __NEW(Type, size)
+template<typename T> void iec_delete(T*& ptr);       // __DELETE(ptr)
+template<typename T> void iec_delete_array(T*& ptr); // __DELETE(array_ptr)
+```
+
+Uses `malloc`/`free` with placement new. Sets pointer to `nullptr` after deletion.
+
+## Composite Types
+
+- **Structs** (`iec_struct.hpp`): Plain C++ structs with IECVar-wrapped fields
+- **Enums** (`iec_enum.hpp`): C++ `enum class` with configurable underlying type
+- **Subranges** (`iec_subrange.hpp`): Runtime range validation on assignment
+
+## Time Types (`iec_time.hpp`, `iec_date.hpp`, `iec_dt.hpp`, `iec_tod.hpp`)
+
+All time/date types use nanosecond-precision `int64_t` storage. Arithmetic operations (`+`, `-`, comparison) are defined. Time literal parsing handles the IEC format: `T#1h2m3s4ms5us6ns`. LTIME types share the same int64_t representation with nanosecond precision.
 
 ## Standard Functions (`iec_std_lib.hpp`)
 
@@ -170,7 +212,7 @@ Template implementations of all IEC 61131-3 standard functions:
 | Bit Shift | SHL, SHR, ROR, ROL |
 | Conversion | *_TO_* functions (INT_TO_REAL, REAL_TO_INT, etc.) |
 | String | LEN, LEFT, RIGHT, MID, CONCAT, FIND, REPLACE, INSERT, DELETE, UPPER, LOWER, TRIM |
-| Time | Duration arithmetic, time construction |
+| System | ADR, SIZEOF |
 
 Variadic functions (ADD, MUL, MIN, MAX) accept 2+ arguments via template parameter packs.
 
@@ -182,23 +224,23 @@ The interactive REPL binary uses [isocline](https://github.com/daanx/isocline) (
 
 | Header | Purpose |
 |--------|---------|
-| `iec_types.hpp` | Elementary type aliases |
+| `iec_types.hpp` | Elementary type aliases (including LTIME/LDATE/LTOD/LDT) |
 | `iec_var.hpp` | IECVar wrapper with forcing |
 | `iec_traits.hpp` | Type category traits |
 | `iec_string.hpp` | STRING type and functions |
 | `iec_wstring.hpp` | WSTRING type and functions |
 | `iec_char.hpp` | CHAR type |
-| `iec_array.hpp` | Array templates (1D, 2D) |
+| `iec_array.hpp` | Array templates (1D, 2D, 3D) |
 | `iec_struct.hpp` | Struct support |
 | `iec_enum.hpp` | Enum support |
 | `iec_subrange.hpp` | Subrange type with validation |
-| `iec_time.hpp` | TIME type and arithmetic |
-| `iec_date.hpp` | DATE type |
-| `iec_tod.hpp` | TIME_OF_DAY type |
-| `iec_dt.hpp` | DATE_AND_TIME type |
+| `iec_time.hpp` | TIME/LTIME types and arithmetic |
+| `iec_date.hpp` | DATE/LDATE type |
+| `iec_tod.hpp` | TIME_OF_DAY/LTOD type |
+| `iec_dt.hpp` | DATE_AND_TIME/LDT type |
 | `iec_located.hpp` | Located variable (AT %IX0.0) support |
 | `iec_pointer.hpp` | POINTER TO type |
-| `iec_ptr.hpp` | Pointer-to-integer conversion |
-| `iec_retain.hpp` | RETAIN variable support |
+| `iec_ptr.hpp` | REF_TO, REFERENCE_TO, and ADR support |
+| `iec_retain.hpp` | RETAIN variable tracking |
 | `iec_memory.hpp` | Dynamic allocation (__NEW/__DELETE) |
 | `iec_std_lib.hpp` | Standard function implementations |
