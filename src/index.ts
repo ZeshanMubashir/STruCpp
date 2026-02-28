@@ -466,3 +466,13 @@ export type {
   StlibArchive,
   StlibCompileResult,
 } from "./library/library-manifest.js";
+
+// Re-export CODESYS import
+export {
+  importCodesysLibrary,
+  detectFormat,
+} from "./library/codesys-import/index.js";
+export type {
+  CodesysImportResult,
+  CodesysFormat,
+} from "./library/codesys-import/index.js";

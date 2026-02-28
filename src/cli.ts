@@ -49,6 +49,7 @@ import {
 } from "./backend/test-main-gen.js";
 import { analyzeTestFile } from "./semantic/analyzer.js";
 import type { CompileOptions } from "./types.js";
+import { importCodesysLibrary } from "./library/codesys-import/index.js";
 
 interface CLIOptions {
   inputs: string[];
@@ -72,6 +73,7 @@ interface CLIOptions {
   libNamespace?: string;
   noSource: boolean;
   decompileLib?: string;
+  importLib?: string;
   test: string[];
   defines: Record<string, number>;
 }
@@ -183,6 +185,12 @@ function parseArgs(args: string[]): CLIOptions {
       if (nextArg !== undefined) {
         options.decompileLib = nextArg;
       }
+    } else if (arg === "--import-lib") {
+      i++;
+      const nextArg = args[i];
+      if (nextArg !== undefined) {
+        options.importLib = nextArg;
+      }
     } else if (arg === "--define") {
       i++;
       const nextArg = args[i];
@@ -257,6 +265,10 @@ Library compilation:
   --no-source               Omit ST source from .stlib archive (closed-source)
   --decompile-lib <path>    Extract ST sources from a .stlib archive
 
+CODESYS import:
+  --import-lib <path>       Import a CODESYS V2.3 (.lib) or V3 (.library) file
+                            Requires --lib-name; -o sets output dir (default: cwd)
+
 Testing:
   --test <file> [file2...]   Run tests from test file(s) against source files
                              (must come after -o if used)
@@ -271,6 +283,7 @@ Examples:
   strucpp --compile-lib src/mylib/ -o out/ --lib-name my-lib
   strucpp counter.st --test test_counter.st
   strucpp --decompile-lib mylib.stlib -o extracted/
+  strucpp --import-lib oscat.lib -o libs/ --lib-name oscat-basic -L libs/
 
 For more information, visit: https://github.com/Autonomy-Logic/STruCpp
 `);
@@ -835,6 +848,101 @@ function decompileLibMode(options: CLIOptions): void {
   );
 }
 
+/**
+ * Import mode: convert a CODESYS .lib/.library file into a .stlib archive.
+ * Extracts ST source from the binary, then compiles via compileStlib().
+ */
+function importLibMode(options: CLIOptions): void {
+  if (!options.libName) {
+    console.error("Error: --lib-name is required with --import-lib");
+    process.exit(1);
+  }
+
+  const outputDir = options.output ? resolve(options.output) : process.cwd();
+  if (!existsSync(outputDir)) {
+    mkdirSync(outputDir, { recursive: true });
+  }
+
+  console.log(`Importing CODESYS library: ${options.importLib!}`);
+
+  const importResult = importCodesysLibrary(options.importLib!);
+
+  if (!importResult.success) {
+    for (const err of importResult.errors) {
+      console.error(`Error: ${err}`);
+    }
+    process.exit(1);
+  }
+
+  for (const w of importResult.warnings) {
+    console.warn(`  warning: ${w}`);
+  }
+
+  const { metadata } = importResult;
+  console.log(`  Format: CODESYS ${metadata.format === "v23" ? "V2.3" : "V3"}`);
+  console.log(`  Extracted ${metadata.pouCount} items:`);
+  for (const [type, count] of Object.entries(metadata.counts).sort()) {
+    console.log(`    ${type}: ${count}`);
+  }
+  if (metadata.guid) {
+    console.log(`  GUID: ${metadata.guid}`);
+  }
+
+  // Now compile the extracted sources into a .stlib archive
+  const libNamespace =
+    options.libNamespace ?? options.libName.replace(/[^a-zA-Z0-9_]/g, "_");
+
+  // Load dependency libraries from explicit -L paths only
+  const dependencies: import("./library/library-manifest.js").StlibArchive[] =
+    [];
+  for (const libPath of options.libraryPaths) {
+    try {
+      dependencies.push(...discoverStlibs(libPath));
+    } catch (e) {
+      console.error(
+        `Warning: Could not load libraries from ${libPath}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  console.log(
+    `\nCompiling library "${options.libName}" from ${importResult.sources.length} extracted source(s)...`,
+  );
+
+  const stlibOpts: Parameters<typeof compileStlib>[1] = {
+    name: options.libName,
+    version: options.libVersion,
+    namespace: libNamespace,
+    noSource: options.noSource,
+  };
+  if (dependencies.length > 0) {
+    stlibOpts.dependencies = dependencies;
+  }
+  if (Object.keys(options.defines).length > 0) {
+    stlibOpts.globalConstants = options.defines;
+  }
+  const result = compileStlib(importResult.sources, stlibOpts);
+
+  if (!result.success) {
+    console.error("\nLibrary compilation failed:");
+    for (const error of result.errors) {
+      const location = error.file
+        ? `${error.file}:${error.line ?? 0}`
+        : `${error.line ?? 0}`;
+      console.error(`  ${location}: error: ${error.message}`);
+    }
+    console.error(
+      "\nNote: Extracted ST sources may need manual adjustments for compilation.",
+    );
+    process.exit(1);
+  }
+
+  const stlibPath = resolve(outputDir, `${options.libName}.stlib`);
+  writeFileSync(stlibPath, JSON.stringify(result.archive, null, 2), "utf-8");
+  console.log(`\nLibrary archive written to ${stlibPath}`);
+  console.log("Import successful!");
+}
+
 function main(): void {
   const args = process.argv.slice(2);
   const options = parseArgs(args);
@@ -852,6 +960,12 @@ function main(): void {
   // Decompile mode
   if (options.decompileLib) {
     decompileLibMode(options);
+    return;
+  }
+
+  // Import CODESYS library mode
+  if (options.importLib) {
+    importLibMode(options);
     return;
   }
 
