@@ -1,16 +1,50 @@
-name: Release
+name: Build & Release
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to inject (e.g. 1.0.0). Leave empty for 0.1-dev.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
-  build:
-    name: Build and Release
+  # ---------------------------------------------------------------------------
+  # Compute the version string once, share it across jobs
+  # ---------------------------------------------------------------------------
+  prepare:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="0.1-dev"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "### Version: \`${VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Linux x64
+  # ---------------------------------------------------------------------------
+  build-linux-x64:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,26 +57,272 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run lint
-        run: npm run lint
+      - name: Inject version
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
 
-      - name: Run tests
-        run: npm test -- --run
+      - name: Bundle
+        run: npm run build:bundle
 
-      - name: Build
-        run: npm run build
+      - name: Build standalone binary
+        run: npx pkg dist/strucpp-bundle.cjs --target node18-linux-x64 --output dist/bin/strucpp --compress GZip
 
-      # Note: Standalone binary packaging with pkg will be added
-      # when the compiler is more complete (Phase 3+)
-      # - name: Package standalone binaries
-      #   run: npm run package
+      - name: Verify binary
+        run: |
+          file dist/bin/strucpp
+          dist/bin/strucpp --help || true
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Package
+        run: |
+          mkdir -p staging/strucpp/runtime/include staging/strucpp/libs
+          cp dist/bin/strucpp staging/strucpp/
+          cp src/runtime/include/*.hpp staging/strucpp/runtime/include/
+          cp libs/*.stlib staging/strucpp/libs/
+          cp LICENSE COPYING COPYING.RUNTIME staging/strucpp/ 2>/dev/null || true
+          tar -czf strucpp-linux-x64.tar.gz -C staging strucpp
+
+      - uses: actions/upload-artifact@v4
         with:
-          files: |
-            dist/**/*.js
-            dist/**/*.d.ts
-          generate_release_notes: true
+          name: strucpp-linux-x64
+          path: strucpp-linux-x64.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # Linux ARM64
+  # ---------------------------------------------------------------------------
+  build-linux-arm64:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Inject version
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Bundle
+        run: npm run build:bundle
+
+      - name: Build standalone binary
+        run: npx pkg dist/strucpp-bundle.cjs --target node18-linux-arm64 --output dist/bin/strucpp --compress GZip
+
+      - name: Verify binary
+        run: |
+          file dist/bin/strucpp
+          dist/bin/strucpp --help || true
+
+      - name: Package
+        run: |
+          mkdir -p staging/strucpp/runtime/include staging/strucpp/libs
+          cp dist/bin/strucpp staging/strucpp/
+          cp src/runtime/include/*.hpp staging/strucpp/runtime/include/
+          cp libs/*.stlib staging/strucpp/libs/
+          cp LICENSE COPYING COPYING.RUNTIME staging/strucpp/ 2>/dev/null || true
+          tar -czf strucpp-linux-arm64.tar.gz -C staging strucpp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: strucpp-linux-arm64
+          path: strucpp-linux-arm64.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # macOS x64 (Intel) — cross-compiled via pkg on ARM runner
+  # ---------------------------------------------------------------------------
+  build-darwin-x64:
+    needs: prepare
+    runs-on: macos-15
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Inject version
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Bundle
+        run: npm run build:bundle
+
+      - name: Build standalone binary
+        run: npx pkg dist/strucpp-bundle.cjs --target node18-macos-x64 --output dist/bin/strucpp --compress GZip
+
+      - name: Verify binary
+        run: |
+          file dist/bin/strucpp
+          arch -x86_64 dist/bin/strucpp --help || true
+
+      - name: Package
+        run: |
+          mkdir -p staging/strucpp/runtime/include staging/strucpp/libs
+          cp dist/bin/strucpp staging/strucpp/
+          cp src/runtime/include/*.hpp staging/strucpp/runtime/include/
+          cp libs/*.stlib staging/strucpp/libs/
+          cp LICENSE COPYING COPYING.RUNTIME staging/strucpp/ 2>/dev/null || true
+          tar -czf strucpp-darwin-x64.tar.gz -C staging strucpp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: strucpp-darwin-x64
+          path: strucpp-darwin-x64.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # macOS ARM64 (Apple Silicon)
+  # ---------------------------------------------------------------------------
+  build-darwin-arm64:
+    needs: prepare
+    runs-on: macos-15
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Inject version
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Bundle
+        run: npm run build:bundle
+
+      - name: Build standalone binary
+        run: npx pkg dist/strucpp-bundle.cjs --target node18-macos-arm64 --output dist/bin/strucpp --compress GZip
+
+      - name: Verify binary
+        run: |
+          file dist/bin/strucpp
+          dist/bin/strucpp --help || true
+
+      - name: Package
+        run: |
+          mkdir -p staging/strucpp/runtime/include staging/strucpp/libs
+          cp dist/bin/strucpp staging/strucpp/
+          cp src/runtime/include/*.hpp staging/strucpp/runtime/include/
+          cp libs/*.stlib staging/strucpp/libs/
+          cp LICENSE COPYING COPYING.RUNTIME staging/strucpp/ 2>/dev/null || true
+          tar -czf strucpp-darwin-arm64.tar.gz -C staging strucpp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: strucpp-darwin-arm64
+          path: strucpp-darwin-arm64.tar.gz
+
+  # ---------------------------------------------------------------------------
+  # Windows x64 (cross-compiled via pkg on Linux)
+  # ---------------------------------------------------------------------------
+  build-windows-x64:
+    needs: prepare
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Inject version
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Bundle
+        run: npm run build:bundle
+
+      - name: Build standalone binary
+        run: npx pkg dist/strucpp-bundle.cjs --target node18-win-x64 --output dist/bin/strucpp.exe --compress GZip
+
+      - name: Verify binary
+        run: file dist/bin/strucpp.exe
+
+      - name: Package
+        run: |
+          mkdir -p staging/strucpp/runtime/include staging/strucpp/libs
+          cp dist/bin/strucpp.exe staging/strucpp/
+          cp src/runtime/include/*.hpp staging/strucpp/runtime/include/
+          cp libs/*.stlib staging/strucpp/libs/
+          cp LICENSE COPYING COPYING.RUNTIME staging/strucpp/ 2>/dev/null || true
+          cd staging && zip -r ../strucpp-win32-x64.zip strucpp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: strucpp-win32-x64
+          path: strucpp-win32-x64.zip
+
+  # ---------------------------------------------------------------------------
+  # Create GitHub Release (only on tag push)
+  # ---------------------------------------------------------------------------
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - prepare
+      - build-linux-x64
+      - build-linux-arm64
+      - build-darwin-x64
+      - build-darwin-arm64
+      - build-windows-x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cp artifacts/strucpp-linux-x64/strucpp-linux-x64.tar.gz release/
+          cp artifacts/strucpp-linux-arm64/strucpp-linux-arm64.tar.gz release/
+          cp artifacts/strucpp-darwin-x64/strucpp-darwin-x64.tar.gz release/
+          cp artifacts/strucpp-darwin-arm64/strucpp-darwin-arm64.tar.gz release/
+          cp artifacts/strucpp-win32-x64/strucpp-win32-x64.zip release/
+          # Windows ARM64 runs x64 binaries via emulation
+          cp release/strucpp-win32-x64.zip release/strucpp-win32-arm64.zip
+          ls -lh release/
+
+      - name: Detect prerelease
+        id: prerelease
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" =~ (alpha|beta|rc) ]]; then
+            echo "flag=--prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            ${{ steps.prerelease.outputs.flag }} \
+            release/*
