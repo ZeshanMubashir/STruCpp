@@ -375,16 +375,15 @@ function printCompilerNotFound(compiler: string, flag: string): never {
       "To compile on Windows you need a C/C++ toolchain (MinGW-w64).\n",
     );
     if (hasWinget()) {
-      console.error("  Quick install via winget (LLVM/Clang toolchain):");
+      console.error("  Install via winget (recommended):");
       console.error(
-        "    winget install -e --id MartinStorsjo.LLVM-MinGW.UCRT\n",
+        "    winget install -e --id BrechtSanders.WinLibs.POSIX.UCRT\n",
       );
-      console.error("  Then reopen your terminal and use:");
       console.error(
-        "    strucpp input.st -o output.cpp --build --gpp clang++ --cc clang\n",
+        "  Then reopen your terminal so the PATH update takes effect.\n",
       );
     }
-    console.error("  For GCC/g++, download standalone MinGW-w64 from:");
+    console.error("  Or download standalone MinGW-w64 (GCC) from:");
     console.error("    https://winlibs.com\n");
     console.error("  Extract it and add the bin/ folder to your PATH.");
   } else if (os === "darwin") {
