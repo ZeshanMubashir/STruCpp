@@ -2,11 +2,49 @@
 
 ## Installation
 
+Download the latest release for your platform from [GitHub Releases](https://github.com/Autonomy-Logic/strucpp/releases):
+
+| Platform | Archive |
+|----------|---------|
+| Linux x64 | `strucpp-linux-x64.tar.gz` |
+| Linux ARM64 | `strucpp-linux-arm64.tar.gz` |
+| macOS Intel | `strucpp-darwin-x64.zip` |
+| macOS Apple Silicon | `strucpp-darwin-arm64.zip` |
+| Windows x64 | `strucpp-win32-x64.zip` |
+
+Extract the archive and add the `strucpp/` directory to your `PATH`:
+
 ```bash
-npm ci && npm run build
+# Linux / macOS
+tar -xzf strucpp-linux-x64.tar.gz   # or unzip strucpp-darwin-arm64.zip
+export PATH="$PWD/strucpp:$PATH"
+
+# Verify
+strucpp --version
 ```
 
-The CLI entry point is `dist/cli.js`, typically invoked as `strucpp` when installed globally or via `npx`.
+The release contains:
+
+```
+strucpp/
+  strucpp                  # Standalone binary (strucpp.exe on Windows)
+  runtime/
+    include/*.hpp          # C++ runtime headers (included automatically)
+    repl/                  # REPL line editor sources (for --build)
+    test/                  # Test harness sources (for --test)
+  libs/
+    iec-standard-fb.stlib  # IEC 61131-3 standard function blocks
+    oscat-basic.stlib      # OSCAT Basic library
+```
+
+## Prerequisites
+
+The `--build` and `--test` modes compile C++ code and require a working toolchain on the host:
+
+- `g++` with C++17 support (GCC 7+ or equivalent)
+- `cc` (any C11 compiler, for the REPL line editor)
+
+The default compile mode (ST to C++) has no external dependencies.
 
 ## Modes
 
@@ -126,7 +164,7 @@ Format is auto-detected. Extracts ST source from the binary/ZIP format, compiles
 
 When compiling (not in `--compile-lib` mode):
 
-1. Bundled `libs/` directory (auto-discovered, unless `--no-default-libs`)
+1. Bundled `libs/` directory next to the `strucpp` binary (auto-discovered, unless `--no-default-libs`)
 2. Paths from `-L` flags, in order specified
 3. Duplicates are removed
 
