@@ -1342,10 +1342,6 @@ export class CodeGenerator {
     if (this.options.isTestBuild) {
       this.emit("    if (__mocked_) { __mock_state_.call_count++; return; }");
     }
-    // CODESYS semantics: parent body executes first (implicit SUPER call)
-    if (fb.extends) {
-      this.emit(`    ${fb.extends}::operator()();`);
-    }
     this.enterScope(fb.varBlocks);
     if (fb.body.length > 0) {
       this.generateStatements(fb.body);
@@ -3163,6 +3159,14 @@ export class CodeGenerator {
 
     const nameUpper = expr.functionName.toUpperCase();
 
+    // SUPER^() — parent body call
+    if (nameUpper === "SUPER" && this.currentFBExtends) {
+      const args = expr.arguments.map((arg) =>
+        this.generateExpression(arg.value),
+      );
+      return `${this.currentFBExtends}::operator()(${args.join(", ")})`;
+    }
+
     // 0. ADR(x) → &(x) (CODESYS address-of operator)
     if (nameUpper === "ADR") {
       const args = expr.arguments.map((arg) =>
@@ -3852,6 +3856,9 @@ export class CodeGenerator {
         const timeVal = parseTimeLiteral(initialValue);
         return `${timeVal.nanoseconds}LL`;
       }
+      // Convert IEC BOOL literals to C++ bool literals
+      if (upperInit === "TRUE") return "true";
+      if (upperInit === "FALSE") return "false";
       return initialValue;
     }
 
