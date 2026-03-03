@@ -13,7 +13,7 @@ STruC++ compiles PLC programs written in [Structured Text](https://en.wikipedia.
 
 ## Why STruC++?
 
-**The only ST-to-C++ compiler.** Other tools target C (MatIEC) or proprietary bytecode. STruC++ generates idiomatic C++17 with classes for function blocks, virtual methods for interfaces, and templates for generics, producing code you can actually read, debug, and integrate with existing C++ projects.
+**ST-to-C++ makes sense.** Other tools target C (MatIEC) or proprietary bytecode. STruC++ generates idiomatic C++17 with classes for function blocks, virtual methods for interfaces, and templates for generics, producing code you can actually read, debug, and integrate with existing C++ projects.
 
 **Built-in unit testing.** Every PLC testing solution today requires a separate IDE add-on, an external library, or PLC hardware to run tests. STruC++ has a test runner built into the compiler itself. Users can write tests in ST, run them on any machine with `strucpp source.st --test tests.st`. No PLC needed, perfect for automated build pipelines. See the [Testing Guide](docs/TESTING.md).
 
