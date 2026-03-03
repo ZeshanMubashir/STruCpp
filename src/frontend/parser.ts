@@ -442,6 +442,20 @@ export class STParser extends CstParser {
     });
   });
 
+  /**
+   * Array literal: [expr, expr, ...]
+   * Bracket-enclosed comma-separated expressions for array initialization.
+   */
+  public arrayLiteral = this.RULE("arrayLiteral", () => {
+    this.CONSUME(tokens.LBracket);
+    this.SUBRULE(this.expression);
+    this.MANY(() => {
+      this.CONSUME(tokens.Comma);
+      this.SUBRULE2(this.expression);
+    });
+    this.CONSUME(tokens.RBracket);
+  });
+
   // ==========================================================================
   // Type declarations
   // ==========================================================================
@@ -1376,6 +1390,10 @@ export class STParser extends CstParser {
         {
           ALT: () => this.SUBRULE(this.methodCall),
           GATE: () => this.isMethodCallAhead(),
+        },
+        {
+          ALT: () => this.SUBRULE(this.arrayLiteral),
+          GATE: () => this.LA(1).tokenType === tokens.LBracket,
         },
         // functionCall and variable both start with Identifier;
         // functionCall needs Ident( lookahead to disambiguate

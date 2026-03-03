@@ -45,6 +45,7 @@ import type {
   DrefExpression,
   NewExpression,
   DeleteStatement,
+  ArrayLiteralExpression,
   FunctionCallExpression,
   MethodCallExpression,
   FunctionCallStatement,
@@ -2221,6 +2222,23 @@ export class ASTBuilder {
     // Check for DREF(expression) expression
     if (children.drefExpression) {
       return this.buildDrefExpression(getFirstNode(children.drefExpression)!);
+    }
+
+    // Check for array literal [expr, expr, ...]
+    if (children.arrayLiteral) {
+      const litNode = getFirstNode(children.arrayLiteral)!;
+      const litChildren = litNode.children as CstChildren;
+      const exprNodes = getAllNodes(litChildren.expression);
+      const elements: Expression[] = [];
+      for (const en of exprNodes) {
+        const e = this.buildExpression(en);
+        if (e) elements.push(e);
+      }
+      return {
+        kind: "ArrayLiteralExpression",
+        sourceSpan: nodeToSourceSpan(litNode),
+        elements,
+      } as ArrayLiteralExpression;
     }
 
     // Check for __NEW(type) or __NEW(type, size) expression

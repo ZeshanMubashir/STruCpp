@@ -324,10 +324,11 @@ export class CodeGenerator {
     maxLength?: number | string,
   ): string {
     // Handle VLA synthetic names: __VLA_{ndims}D_{elementType}
+    // Use IECVar-wrapped types to match concrete Array1D<IEC_T, ...> elements
     const vlaMatch = typeName.match(/^__VLA_(\d+)D_(.+)$/);
     if (vlaMatch) {
       const ndims = vlaMatch[1];
-      const elemType = this.typeCodeGen.mapTypeToCpp(vlaMatch[2]!);
+      const elemType = this.mapVarTypeToCpp(vlaMatch[2]!);
       return `ArrayView${ndims}D<${elemType}>`;
     }
     // Handle parameterized STRING(n) / WSTRING(n) / STRING(CONSTANT_NAME)
@@ -1340,6 +1341,10 @@ export class CodeGenerator {
     this.emit(`void ${fb.name}::operator()() {`);
     if (this.options.isTestBuild) {
       this.emit("    if (__mocked_) { __mock_state_.call_count++; return; }");
+    }
+    // CODESYS semantics: parent body executes first (implicit SUPER call)
+    if (fb.extends) {
+      this.emit(`    ${fb.extends}::operator()();`);
     }
     this.enterScope(fb.varBlocks);
     if (fb.body.length > 0) {
@@ -3164,6 +3169,18 @@ export class CodeGenerator {
         this.generateExpression(arg.value),
       );
       return `&(${args[0] ?? ""})`;
+    }
+
+    // 0b. LOWER_BOUND/UPPER_BOUND(arr, dim) → arr.lower_bound() / arr.upper_bound()
+    if (nameUpper === "LOWER_BOUND" || nameUpper === "UPPER_BOUND") {
+      const method =
+        nameUpper === "LOWER_BOUND" ? "lower_bound" : "upper_bound";
+      const arrExpr = this.generateExpression(expr.arguments[0]!.value);
+      if (expr.arguments.length >= 2) {
+        const dimExpr = this.generateExpression(expr.arguments[1]!.value);
+        return `${arrExpr}.${method}(${dimExpr})`;
+      }
+      return `${arrExpr}.${method}()`;
     }
 
     // 1. Check for *_TO_* conversion pattern (e.g., INT_TO_REAL -> TO_REAL)
