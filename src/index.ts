@@ -7,6 +7,9 @@
  * This module exports the public API for programmatic usage.
  */
 
+import { readFileSync } from "fs";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import { CompileOptions, CompileResult, CompileError } from "./types.js";
 import { parse as parseSource } from "./frontend/parser.js";
 import { buildAST } from "./frontend/ast-builder.js";
@@ -443,8 +446,23 @@ export function parse(source: string): {
 /**
  * Get the version of the STruC++ compiler.
  */
+declare const STRUCPP_VERSION: string | undefined;
+
 export function getVersion(): string {
-  return "0.1.0-dev";
+  // Bundled binary: version injected by esbuild --define at build time
+  if (typeof STRUCPP_VERSION !== "undefined") {
+    return STRUCPP_VERSION;
+  }
+  // Development: read from package.json at runtime
+  try {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(
+      readFileSync(join(dir, "../package.json"), "utf-8"),
+    ) as { version: string };
+    return pkg.version;
+  } catch {
+    return "0.0.0";
+  }
 }
 
 // Re-export types
