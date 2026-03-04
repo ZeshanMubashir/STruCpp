@@ -231,8 +231,8 @@ export class DocumentManager {
     // we already have in memory — no extra I/O.
     this._caseMap.clear();
     addToCaseMap(this._caseMap, state.source);
-    for (const as of additionalSources) {
-      addToCaseMap(this._caseMap, as.source);
+    for (const addlSrc of additionalSources) {
+      addToCaseMap(this._caseMap, addlSrc.source);
     }
   }
 }

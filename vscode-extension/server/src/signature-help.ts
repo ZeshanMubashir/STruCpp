@@ -23,6 +23,7 @@ import type {
 } from "strucpp";
 import { findEnclosingPOU, typeName } from "strucpp";
 import { getScopeForContext } from "./resolve-symbol.js";
+import { stripCommentsAndStrings } from "./lsp-utils.js";
 
 /**
  * Get signature help for the given position.
@@ -141,6 +142,8 @@ interface CallInfo {
 /**
  * Scan backwards from cursor to find the enclosing function call.
  * Tracks paren depth and counts commas at depth 1 for activeParameter.
+ * Pre-strips comments and strings so that parens/commas inside them
+ * don't confuse the scan.
  */
 function findEnclosingCall(
   source: string,
@@ -157,17 +160,22 @@ function findEnclosingCall(
     flat += lines[line - 1].substring(0, column - 1);
   }
 
+  // Strip comments and strings so enclosed parens/commas are ignored
+  const cleaned = stripCommentsAndStrings(flat);
+
   // Scan backwards tracking paren depth
   let depth = 0;
   let commas = 0;
 
-  for (let i = flat.length - 1; i >= 0; i--) {
-    const ch = flat[i];
+  for (let i = cleaned.length - 1; i >= 0; i--) {
+    const ch = cleaned[i];
     if (ch === ")") {
       depth++;
     } else if (ch === "(") {
       if (depth === 0) {
         // Found the matching open paren — extract function name before it
+        // Use the original (unstripped) text for name extraction so identifiers
+        // that happen to adjoin a stripped region are still found correctly.
         const before = flat.substring(0, i).trimEnd();
         const match = before.match(/([\w]+(?:\.[\w]+)?)\s*$/);
         if (!match) return null;
@@ -193,6 +201,40 @@ function findEnclosingCall(
 }
 
 // ---------------------------------------------------------------------------
+// Shared signature builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a SignatureHelp from a function name, parameter labels, optional
+ * return type, and the active parameter index.
+ */
+function makeSignatureHelp(
+  name: string,
+  paramLabels: string[],
+  returnType: string | undefined,
+  activeParameter: number,
+): SignatureHelp {
+  const params = paramLabels.map((label) => ParameterInformation.create(label));
+  const sigLabel = returnType
+    ? `${name}(${paramLabels.join(", ")}) : ${returnType}`
+    : `${name}(${paramLabels.join(", ")})`;
+  return {
+    signatures: [SignatureInformation.create(sigLabel, undefined, ...params)],
+    activeSignature: 0,
+    activeParameter: params.length > 0
+      ? Math.min(activeParameter, params.length - 1)
+      : 0,
+  };
+}
+
+/** Format a VariableSymbol as a parameter label: `name : Type`. */
+function formatParamLabel(v: VariableSymbol): string {
+  const typeStr =
+    v.declaration?.type?.name ?? (v.type ? typeName(v.type) : "unknown");
+  return `${v.name} : ${typeStr}`;
+}
+
+// ---------------------------------------------------------------------------
 // Signature builders
 // ---------------------------------------------------------------------------
 
@@ -215,28 +257,10 @@ function buildFunctionSignature(
     }
   }
 
-  const params = inputParams.map((p) => {
-    const typeStr =
-      p.declaration?.type?.name ?? (p.type ? typeName(p.type) : "unknown");
-    return ParameterInformation.create(`${p.name} : ${typeStr}`);
-  });
-
-  const paramLabels = inputParams.map((p) => {
-    const typeStr =
-      p.declaration?.type?.name ?? (p.type ? typeName(p.type) : "unknown");
-    return `${p.name} : ${typeStr}`;
-  });
+  const paramLabels = inputParams.map(formatParamLabel);
   const retType =
     sym.declaration?.returnType?.name ?? typeName(sym.returnType);
-  const sigLabel = `${sym.name}(${paramLabels.join(", ")}) : ${retType}`;
-
-  return {
-    signatures: [
-      SignatureInformation.create(sigLabel, undefined, ...params),
-    ],
-    activeSignature: 0,
-    activeParameter: Math.min(activeParameter, params.length - 1),
-  };
+  return makeSignatureHelp(sym.name, paramLabels, retType, activeParameter);
 }
 
 function buildFBSignature(
@@ -244,7 +268,6 @@ function buildFBSignature(
   symbolTables: import("strucpp").SymbolTables,
   activeParameter: number,
 ): SignatureHelp {
-  // Collect inputs for the signature
   let inputs: VariableSymbol[] = fbSym.inputs;
 
   // Fall back to FB scope if inputs array is empty
@@ -259,51 +282,19 @@ function buildFBSignature(
     }
   }
 
-  const params = inputs.map((v) => {
-    const typeStr =
-      v.declaration?.type?.name ?? (v.type ? typeName(v.type) : "unknown");
-    return ParameterInformation.create(`${v.name} : ${typeStr}`);
-  });
-
-  const paramLabels = inputs.map((v) => {
-    const typeStr =
-      v.declaration?.type?.name ?? (v.type ? typeName(v.type) : "unknown");
-    return `${v.name} : ${typeStr}`;
-  });
-  const sigLabel = `${fbSym.name}(${paramLabels.join(", ")})`;
-
-  return {
-    signatures: [
-      SignatureInformation.create(sigLabel, undefined, ...params),
-    ],
-    activeSignature: 0,
-    activeParameter: Math.min(activeParameter, params.length - 1),
-  };
+  const paramLabels = inputs.map(formatParamLabel);
+  return makeSignatureHelp(fbSym.name, paramLabels, undefined, activeParameter);
 }
 
 function buildStdFunctionSignature(
   fn: StdFunctionDescriptor,
   activeParameter: number,
 ): SignatureHelp {
-  const params = fn.params.map((p) => {
-    const typeStr = p.specificType ?? p.constraint;
-    return ParameterInformation.create(`${p.name} : ${typeStr}`);
-  });
-
-  const paramLabels = fn.params.map((p) => {
-    const typeStr = p.specificType ?? p.constraint;
-    return `${p.name} : ${typeStr}`;
-  });
+  const paramLabels = fn.params.map(
+    (p) => `${p.name} : ${p.specificType ?? p.constraint}`,
+  );
   const retType = fn.specificReturnType ?? fn.returnConstraint;
-  const sigLabel = `${fn.name}(${paramLabels.join(", ")}) : ${retType}`;
-
-  return {
-    signatures: [
-      SignatureInformation.create(sigLabel, undefined, ...params),
-    ],
-    activeSignature: 0,
-    activeParameter: Math.min(activeParameter, params.length - 1),
-  };
+  return makeSignatureHelp(fn.name, paramLabels, retType, activeParameter);
 }
 
 function buildMethodSignature(
@@ -311,25 +302,8 @@ function buildMethodSignature(
   params: VariableSymbol[],
   activeParameter: number,
 ): SignatureHelp {
-  const paramInfos = params.map((p) => {
-    const typeStr =
-      p.declaration?.type?.name ?? (p.type ? typeName(p.type) : "unknown");
-    return ParameterInformation.create(`${p.name} : ${typeStr}`);
-  });
-  const paramLabels = params.map((p) => {
-    const typeStr =
-      p.declaration?.type?.name ?? (p.type ? typeName(p.type) : "unknown");
-    return `${p.name} : ${typeStr}`;
-  });
-  const sigLabel = `${methodName}(${paramLabels.join(", ")})`;
-
-  return {
-    signatures: [
-      SignatureInformation.create(sigLabel, undefined, ...paramInfos),
-    ],
-    activeSignature: 0,
-    activeParameter: Math.min(activeParameter, paramInfos.length - 1),
-  };
+  const paramLabels = params.map(formatParamLabel);
+  return makeSignatureHelp(methodName, paramLabels, undefined, activeParameter);
 }
 
 function buildMethodDeclSignature(
@@ -337,34 +311,20 @@ function buildMethodDeclSignature(
   activeParameter: number,
 ): SignatureHelp {
   // Extract input params from var blocks
-  const inputs: Array<{ name: string; typeName: string }> = [];
+  const inputs: string[] = [];
   for (const vb of method.varBlocks) {
     if (vb.blockType === "VAR_INPUT") {
       for (const decl of vb.declarations) {
         const typeStr = decl.type?.name ?? "unknown";
         for (const name of decl.names) {
-          inputs.push({ name, typeName: typeStr });
+          inputs.push(`${name} : ${typeStr}`);
         }
       }
     }
   }
 
-  const paramInfos = inputs.map((p) =>
-    ParameterInformation.create(`${p.name} : ${p.typeName}`),
-  );
-  const paramLabels = inputs.map((p) => `${p.name} : ${p.typeName}`);
   const retType = method.returnType?.name;
-  const sigLabel = retType
-    ? `${method.name}(${paramLabels.join(", ")}) : ${retType}`
-    : `${method.name}(${paramLabels.join(", ")})`;
-
-  return {
-    signatures: [
-      SignatureInformation.create(sigLabel, undefined, ...paramInfos),
-    ],
-    activeSignature: 0,
-    activeParameter: Math.min(activeParameter, paramInfos.length - 1),
-  };
+  return makeSignatureHelp(method.name, inputs, retType ?? undefined, activeParameter);
 }
 
 function buildConversionSignature(
@@ -372,12 +332,10 @@ function buildConversionSignature(
   convInfo: { fromType: string; toType: string },
   activeParameter: number,
 ): SignatureHelp {
-  const param = ParameterInformation.create(`IN : ${convInfo.fromType}`);
-  const sigLabel = `${name}(IN : ${convInfo.fromType}) : ${convInfo.toType}`;
-
-  return {
-    signatures: [SignatureInformation.create(sigLabel, undefined, param)],
-    activeSignature: 0,
-    activeParameter: Math.min(activeParameter, 0),
-  };
+  return makeSignatureHelp(
+    name,
+    [`IN : ${convInfo.fromType}`],
+    convInfo.toType,
+    activeParameter,
+  );
 }

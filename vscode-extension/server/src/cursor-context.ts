@@ -10,6 +10,7 @@
 
 import type { AnalysisResult, EnclosingScope } from "strucpp";
 import { findEnclosingPOU } from "strucpp";
+import { stripCommentsAndStrings } from "./lsp-utils.js";
 
 export type CursorContext =
   | { kind: "top-level" }
@@ -34,7 +35,10 @@ export function getCursorContext(
   column: number,
   source: string,
 ): CursorContext {
-  const lines = source.split("\n");
+  // Strip comments and strings so that keywords/parens inside them
+  // don't confuse the text-based scanning.
+  const stripped = stripCommentsAndStrings(source);
+  const lines = stripped.split("\n");
 
   let pouScope = analysis.ast
     ? findEnclosingPOU(analysis.ast, fileName, line, column)
@@ -86,15 +90,15 @@ function isInsideVarBlock(lines: string[], cursorLine: number): boolean {
   let depth = 0;
 
   for (let i = cursorLine - 1; i >= 0; i--) {
-    const stripped = stripLineComment(lines[i]).toUpperCase();
+    const upper = lines[i].toUpperCase();
 
     // Count END_VAR first (they close blocks when scanning backwards)
-    const endVarCount = countOccurrences(stripped, /\bEND_VAR\b/g);
+    const endVarCount = countOccurrences(upper, /\bEND_VAR\b/g);
     depth -= endVarCount;
 
     // Count VAR openers
     const varCount = countOccurrences(
-      stripped,
+      upper,
       /\b(?:VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_TEMP|VAR_EXTERNAL|VAR_GLOBAL)\b/g,
     );
     depth += varCount;
@@ -119,7 +123,7 @@ function detectPOUFromText(lines: string[], cursorLine: number): EnclosingScope 
   }> = [
     { end: /\bEND_METHOD\b/g, open: /\bMETHOD\b/g, kind: "method" },
     { end: /\bEND_FUNCTION_BLOCK\b/g, open: /\bFUNCTION_BLOCK\b/g, kind: "functionBlock" },
-    { end: /\bEND_FUNCTION\b/g, open: /\bFUNCTION\b/g, kind: "function" },
+    { end: /\bEND_FUNCTION(?!_BLOCK)\b/g, open: /\bFUNCTION(?!_BLOCK)\b/g, kind: "function" },
     { end: /\bEND_PROGRAM\b/g, open: /\bPROGRAM\b/g, kind: "program" },
   ];
 
@@ -128,13 +132,13 @@ function detectPOUFromText(lines: string[], cursorLine: number): EnclosingScope 
   for (const { end, open, kind } of pouPatterns) {
     let depth = 0;
     for (let i = maxLine; i >= 0; i--) {
-      const stripped = stripLineComment(lines[i]).toUpperCase();
-      depth -= countOccurrences(stripped, end);
-      const opens = countOccurrences(stripped, open);
+      const upper = lines[i].toUpperCase();
+      depth -= countOccurrences(upper, end);
+      const opens = countOccurrences(upper, open);
       depth += opens;
       if (depth > 0) {
         // Extract name from the opener line
-        const nameMatch = stripped.match(
+        const nameMatch = upper.match(
           new RegExp(`\\b(?:PROGRAM|FUNCTION_BLOCK|FUNCTION|METHOD)\\s+(\\w+)`),
         );
         return { kind, name: nameMatch?.[1] ?? "unknown" };
@@ -143,12 +147,6 @@ function detectPOUFromText(lines: string[], cursorLine: number): EnclosingScope 
   }
 
   return { kind: "global", name: "<global>" };
-}
-
-/** Remove single-line // comments from a line. */
-function stripLineComment(line: string): string {
-  const idx = line.indexOf("//");
-  return idx >= 0 ? line.substring(0, idx) : line;
 }
 
 /** Count regex matches in a string. */

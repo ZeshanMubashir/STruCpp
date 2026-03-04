@@ -257,7 +257,6 @@ connection.onCompletion((params) => {
     line,
     column,
     source,
-    params.context?.triggerCharacter,
     docManager.getCaseMap(),
   );
 });

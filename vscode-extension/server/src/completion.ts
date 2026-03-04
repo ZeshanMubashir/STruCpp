@@ -35,7 +35,6 @@ export function getCompletions(
   line: number,
   column: number,
   source: string,
-  triggerCharacter?: string,
   caseMap?: ReadonlyMap<string, string>,
 ): CompletionItem[] {
   const ctx = getCursorContext(analysis, fileName, line, column, source);
@@ -497,7 +496,7 @@ function getBodyCompletions(
       }
     }
     currentScope = currentScope.parent;
-    sortPriority = currentScope?.parent ? "3" : "3"; // global scope
+    sortPriority = currentScope?.parent ? "2" : "3"; // intermediate vs global scope
   }
 
   // Standard library functions
