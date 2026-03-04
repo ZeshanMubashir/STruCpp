@@ -29,6 +29,19 @@ A PID controller function block for process control. Demonstrates:
 - Anti-windup protection
 - Output limiting
 
+### unity_conveyor_controller.st
+A Unity-friendly virtual commissioning controller for a conveyor. Demonstrates:
+- Safety interlocks (`EStopOK`, `GuardDoorClosed`)
+- Run/stop latching behavior
+- Jam timeout alarm logic (2s with 10ms scan assumption)
+- Tag-style I/O suitable for Unity/C#/OPC UA bridging
+
+### unity_conveyor_controller_tests.st
+Companion test file for `unity_conveyor_controller.st`. Demonstrates:
+- Start/stop behavior checks
+- Jam timeout verification
+- Alarm reset and restart validation
+
 ## Usage
 
 Once STruC++ is fully implemented (Phase 3+), you can compile these examples:
@@ -42,6 +55,9 @@ strucpp examples/motor_control.st -o output/motor_control.cpp --debug
 
 # Compile with line directives for debugging
 strucpp examples/pid_controller.st -o output/pid.cpp --line-directives
+
+# Run virtual commissioning controller tests
+strucpp examples/unity_conveyor_controller.st --test examples/unity_conveyor_controller_tests.st
 ```
 
 ## Notes
