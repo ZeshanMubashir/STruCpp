@@ -46,6 +46,7 @@ Companion test file for `unity_conveyor_controller.st`. Demonstrates:
 - `UNITY_TCP_QUICKSTART.md` -- minimal setup steps for Unity + local TCP server
 - `UNITY_TCP_PIPELINE.md` -- detailed protocol and integration notes
 - Reference/inspiration: https://github.com/rparak/Unity3D_Robotics_Sorting_Machine
+- Digital Twin video asset: `DT.mov`
 
 ## Usage
 

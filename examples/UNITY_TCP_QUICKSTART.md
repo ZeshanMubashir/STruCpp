@@ -6,6 +6,7 @@ Use this if you want the shortest path to run Unity + local ST controller on you
 
 - Original digital-twin project (Unity + B&R OPC UA):
   https://github.com/rparak/Unity3D_Robotics_Sorting_Machine
+- Digital Twin demo video (local repo asset): `examples/DT.mov`
 
 ## 1) Compile ST controller
 
