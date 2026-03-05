@@ -217,7 +217,7 @@ function buildMasks(lines: string[]): MaskResult {
     }
 
     masks.push(mask);
-    blockCommentLines.push(entirelyInBlock && inBlockComment >= 0);
+    blockCommentLines.push(entirelyInBlock);
   }
 
   return { masks, blockCommentLines };

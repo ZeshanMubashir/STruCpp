@@ -221,10 +221,15 @@ const MATCHERS: ActionMatcher[] = [
       const diagLine = diag.range.start.line;
       const indent = diagLine > 0 ? getLineIndent(lines[diagLine - 1] ?? "") : "";
 
+      // Only control-flow terminators get trailing semicolons;
+      // POU/VAR closers (END_PROGRAM, END_FUNCTION, etc.) do not.
+      const needsSemi = /^END_(IF|FOR|WHILE|REPEAT|CASE)$/.test(keyword);
+      const suffix = needsSemi ? ";" : "";
+
       return makeAction(
         `Add missing '${keyword}'`,
         uri,
-        TextEdit.insert(Position.create(diagLine, 0), `${indent}${keyword};\n`),
+        TextEdit.insert(Position.create(diagLine, 0), `${indent}${keyword}${suffix}\n`),
         diag,
       );
     },
@@ -256,14 +261,17 @@ function getLineIndent(line: string): string {
 }
 
 /**
- * Find the nearest VAR block above `targetLine` in the stripped source.
- * Returns the line number of the END_VAR where we should insert before.
+ * Find a plain `VAR` block above `targetLine` for inserting a local variable.
+ * Only matches `VAR` (not `VAR_INPUT`, `VAR_OUTPUT`, etc.) to avoid
+ * accidentally adding a local variable to an input/output declaration block.
+ * Returns the line number of the END_VAR where we should insert before,
+ * or null if no plain VAR block exists (caller should create one).
  */
 function findVarBlockInsertion(
   strippedLines: string[],
   targetLine: number,
 ): { endVarLine: number } | null {
-  // Scan backward from the diagnostic line for VAR blocks
+  // Scan backward from the diagnostic line for a plain VAR block
   for (let i = targetLine - 1; i >= 0; i--) {
     const upper = strippedLines[i].trim().toUpperCase();
     // If we hit a POU boundary, stop searching
@@ -272,8 +280,8 @@ function findVarBlockInsertion(
     ) {
       break;
     }
-    // Found a VAR block start
-    if (/^(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_GLOBAL|VAR_TEMP|VAR_EXTERNAL)\b/.test(upper)) {
+    // Only match plain VAR (word boundary after VAR ensures VAR_INPUT etc. don't match)
+    if (/^VAR\b/i.test(upper) && !/^VAR_/i.test(upper)) {
       // Find the matching END_VAR
       for (let j = i + 1; j < strippedLines.length; j++) {
         if (/\bEND_VAR\b/i.test(strippedLines[j])) {
@@ -326,6 +334,10 @@ function inferTypeFromLine(line: string): string {
   if (/^"[^"]*"$/.test(rhs)) return "WSTRING";
   if (/^\d+\.\d+$/.test(rhs)) return "REAL";
   if (/^\d+$/.test(rhs)) return "INT";
+
+  // Typed literals: DINT#100, REAL#3.14, BYTE#16#FF, etc.
+  const typedLiteral = rhs.match(/^([A-Z_]\w*)#/i);
+  if (typedLiteral) return typedLiteral[1].toUpperCase();
 
   return "INT";
 }
