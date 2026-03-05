@@ -32,6 +32,8 @@ import { getSignatureHelp } from "./signature-help.js";
 import { getReferences } from "./references.js";
 import { prepareRename, getRenameEdits } from "./rename.js";
 import { getSemanticTokens, TOKEN_TYPES, TOKEN_MODIFIERS } from "./semantic-tokens.js";
+import { getCodeActions } from "./code-actions.js";
+import { formatDocument } from "./formatting.js";
 
 const connection = createConnection(ProposedFeatures.all);
 const textDocuments = new TextDocuments(TextDocument);
@@ -81,6 +83,10 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
       },
       referencesProvider: true,
       renameProvider: { prepareProvider: true },
+      codeActionProvider: {
+        codeActionKinds: ["quickfix"],
+      },
+      documentFormattingProvider: true,
       semanticTokensProvider: {
         legend: { tokenTypes: TOKEN_TYPES, tokenModifiers: TOKEN_MODIFIERS },
         full: true,
@@ -356,6 +362,27 @@ connection.languages.semanticTokens.on((params) => {
   const fileName = docManager.getFileName(uri);
   const data = getSemanticTokens(state.analysisResult, fileName, state.source);
   return { data };
+});
+
+// ---------------------------------------------------------------------------
+// Phase 5 handlers: Code Actions, Document Formatting
+// ---------------------------------------------------------------------------
+
+connection.onCodeAction((params) => {
+  const state = docManager.getState(params.textDocument.uri);
+  if (!state) return [];
+  return getCodeActions(
+    params.context.diagnostics,
+    state.source,
+    params.textDocument.uri,
+    state.analysisResult,
+  );
+});
+
+connection.onDocumentFormatting((params) => {
+  const state = docManager.getState(params.textDocument.uri);
+  if (!state) return [];
+  return formatDocument(state.source, params.options);
 });
 
 function publishDiagnostics(
