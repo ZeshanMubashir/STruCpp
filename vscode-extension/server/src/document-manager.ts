@@ -78,6 +78,87 @@ export class DocumentManager {
     this.libraryPaths = paths;
   }
 
+  getLibraryPaths(): string[] {
+    return this.libraryPaths;
+  }
+
+  getWorkspaceFolders(): ReadonlySet<string> {
+    return this.workspaceFolders;
+  }
+
+  /**
+   * Discover .stlib files in conventional library directories within workspace folders.
+   * Scans `libs/`, `libraries/`, and `.stlibs/` one level deep.
+   */
+  discoverWorkspaceLibraries(): string[] {
+    const libDirs: string[] = [];
+    const conventionalDirs = ["libs", "libraries", ".stlibs"];
+
+    for (const folder of this.workspaceFolders) {
+      for (const dirName of conventionalDirs) {
+        const candidate = path.join(folder, dirName);
+        try {
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+            libDirs.push(candidate);
+          }
+        } catch {
+          // skip
+        }
+      }
+    }
+
+    return libDirs;
+  }
+
+  /**
+   * Build additional sources from all workspace .st files (open docs + disk),
+   * excluding the given primary file URI.
+   */
+  buildWorkspaceSources(
+    excludeUri: string,
+  ): Array<{ source: string; fileName: string }> {
+    const currentFilePath = uriToFilePath(excludeUri);
+    const additionalSources: Array<{ source: string; fileName: string }> = [];
+    const includedPaths = new Set<string>();
+
+    // 1. Include other open documents (they may have unsaved edits)
+    for (const [otherUri, otherState] of this.documents) {
+      if (otherUri === excludeUri) continue;
+      if (isTestFile(otherState.source)) continue;
+      const otherPath = uriToFilePath(otherUri);
+      includedPaths.add(otherPath);
+      additionalSources.push({
+        source: otherState.source,
+        fileName: path.basename(otherPath),
+      });
+    }
+
+    // 2. Discover .st files from workspace folders (read from disk, cached)
+    for (const folder of this.workspaceFolders) {
+      let discovered = this.discoveryCache.get(folder);
+      if (!discovered) {
+        discovered = discoverStFiles(folder);
+        this.discoveryCache.set(folder, discovered);
+      }
+      for (const filePath of discovered) {
+        if (filePath === currentFilePath || includedPaths.has(filePath)) continue;
+        includedPaths.add(filePath);
+        try {
+          const source = fs.readFileSync(filePath, "utf-8");
+          if (isTestFile(source)) continue;
+          additionalSources.push({
+            source,
+            fileName: path.basename(filePath),
+          });
+        } catch {
+          // Skip unreadable files
+        }
+      }
+    }
+
+    return additionalSources;
+  }
+
   onDocumentOpen(uri: string, source: string): DocumentState {
     const state: DocumentState = { uri, version: 0, source };
     this.documents.set(uri, state);
