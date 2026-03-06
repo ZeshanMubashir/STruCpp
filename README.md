@@ -2,196 +2,97 @@
 
 **IEC 61131-3 Structured Text to C++17 compiler.**
 
-STruC++ compiles PLC programs written in Structured Text into portable, real-time capable C++ code. It ships with an interactive REPL for testing programs and a built-in unit testing framework.
+[![CI](https://github.com/Autonomy-Logic/STruCpp/actions/workflows/ci.yml/badge.svg)](https://github.com/Autonomy-Logic/STruCpp/actions/workflows/ci.yml)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-> The name **STruC++** comes from **ST** (Structured Text) + **stru** (Latin root meaning "to build", as in *structure* and *construct*) + **C++** (the target language). It was originally created to replace MatIEC in the [OpenPLC](https://autonomylogic.com) toolchain.
+STruC++ compiles PLC programs written in [Structured Text](https://en.wikipedia.org/wiki/Structured_text) into clean, readable C++17. It ships with a built-in unit testing framework, an interactive REPL for program debugging, and a reusable library system.
+
+> The name **STruC++** comes from **ST** (Structured Text) + **stru** (Latin root meaning "to build") + **C++** (the target language).
+
+---
+
+## Why STruC++?
+
+**ST-to-C++ makes sense.** Other tools target C (MatIEC) or proprietary bytecode. STruC++ generates idiomatic C++17 with classes for function blocks, virtual methods for interfaces, and templates for generics, producing code you can actually read, debug, and integrate with existing C++ projects.
+
+**Built-in unit testing.** Every PLC testing solution today requires a separate IDE add-on, an external library, or PLC hardware to run tests. STruC++ has a test runner built into the compiler itself. Users can write tests in ST, run them on any machine with `strucpp source.st --test tests.st`. No PLC needed, perfect for automated build pipelines. See the [Testing Guide](docs/TESTING.md).
+
+**Interactive REPL.** Build your ST program into a standalone binary with `--build` and step through it interactively to check correctness. The interactive REPL allows users to print ST and C++ code side-by-side, set inputs, advance cycles, inspect variables, and force values. See the [REPL Guide](docs/REPL.md).
+
+**Zero runtime dependencies.** The compiler is a single binary. The C++ runtime is header-only. Generated code compiles with any C++17 compiler (g++, clang++, MSVC). See the [CLI Reference](docs/CLI.md) and [C++ Runtime](docs/RUNTIME.md).
+
+---
 
 ## Quick Start
 
-### From Source
+Download the latest release for your platform from [GitHub Releases](https://github.com/Autonomy-Logic/STruCpp/releases), extract it, and add it to your PATH:
 
 ```bash
-git clone https://github.com/Autonomy-Logic/STruCpp.git
-cd STruCpp
-npm ci && npm run build
+tar -xzf strucpp-linux-x64.tar.gz    # or unzip on macOS/Windows
+export PATH="$PWD/strucpp:$PATH"
+strucpp --version
 ```
 
-### Standalone Binaries
-
-Pre-built binaries (no Node.js required) can be built with:
+### Compile ST to C++
 
 ```bash
-npm run build:pkg           # All platforms
-npm run build:pkg:linux     # Linux only
-npm run build:pkg:macos     # macOS only
-npm run build:pkg:win       # Windows only
+strucpp counter.st -o counter.cpp
 ```
 
-## Usage
-
-### Compiling ST to C++
+This generates `counter.cpp` and `counter.hpp`. To compile the C++ output:
 
 ```bash
-npx strucpp program.st -o program.cpp
+g++ -std=c++17 -Istrucpp/runtime/include counter.cpp -o counter
 ```
 
-This generates two files: `program.cpp` (implementation) and `program.hpp` (header). The runtime is header-only, so compiling the output only requires the include path:
+### Run Unit Tests
 
 ```bash
-g++ -std=c++17 -I path/to/STruCpp/src/runtime/include program.cpp -o program
+strucpp adder.st --test test_adder.st
 ```
 
-**Example input** (`counter.st`):
+```
+STruC++ Test Runner v1.0
 
-```iecst
-FUNCTION_BLOCK Counter
-  VAR_INPUT
-    enable : BOOL;
-    reset  : BOOL;
-  END_VAR
-  VAR_OUTPUT
-    count : INT;
-  END_VAR
+test_adder.st
+  [PASS] Addition works
+  [PASS] Addition with negatives
 
-  IF reset THEN
-    count := 0;
-  ELSIF enable THEN
-    count := count + 1;
-  END_IF;
-END_FUNCTION_BLOCK
+-----------------------------------------
+2 tests, 2 passed, 0 failed
 ```
 
-**Generated C++ output:**
-
-```cpp
-// counter.hpp
-namespace strucpp {
-
-class Counter {
-public:
-    // Inputs
-    IEC_BOOL enable;
-    IEC_BOOL reset;
-    // Outputs
-    IEC_INT count;
-
-    Counter();
-    void operator()();
-    virtual ~Counter() = default;
-};
-
-}  // namespace strucpp
-```
-
-```cpp
-// counter.cpp
-namespace strucpp {
-
-Counter::Counter() {
-    // Initialize variables
-}
-
-void Counter::operator()() {
-    if (reset) {
-        count = 0;
-    } else if (enable) {
-        count = count + 1;
-    }
-}
-
-}  // namespace strucpp
-```
-
-### Interactive REPL
-
-The `--build` flag compiles ST source into a standalone binary with an interactive REPL for exploring program behavior. The source must include a PROGRAM with a CONFIGURATION that defines task scheduling:
-
-**Source** (`counter_app.st`):
-
-```iecst
-PROGRAM CounterProg
-  VAR_INPUT
-    enable : BOOL;
-    reset  : BOOL;
-  END_VAR
-  VAR_OUTPUT
-    count : INT;
-  END_VAR
-
-  IF reset THEN
-    count := 0;
-  ELSIF enable THEN
-    count := count + 1;
-  END_IF;
-END_PROGRAM
-
-CONFIGURATION DefaultConfig
-  RESOURCE DefaultResource ON PLC
-    TASK MainTask(INTERVAL := T#20ms, PRIORITY := 1);
-    PROGRAM Counter WITH MainTask : CounterProg;
-  END_RESOURCE
-END_CONFIGURATION
-```
+### Interactive REPL ([full guide](docs/REPL.md))
 
 ```bash
-npx strucpp counter_app.st -o counter_app.cpp --build
-./counter_app
+strucpp program.st -o program.cpp --build
+./program
 ```
 
 ```
 STruC++ Interactive PLC Test REPL
-Programs: Counter(3 vars)
-Source: 22 lines loaded
-Type help for commands, Tab for completion, Ctrl+R to search history.
+Programs: Main(3 vars)
 
-strucpp[0]> programs
-  Counter (3 variables)
-
-strucpp[0]> set Counter.enable true
-  Counter.enable = TRUE
-
+strucpp[0]> set Main.enable true
 strucpp[0]> run 5
 Executed 5 cycle(s). Total: 5
 
-strucpp[5]> vars Counter
-  Counter.enable : BOOL = TRUE
-  Counter.reset : BOOL = FALSE
-  Counter.count : INT = 5
-
-strucpp[5]> set Counter.reset true
-  Counter.reset = TRUE
-strucpp[5]> run
-Executed 1 cycle(s). Total: 6
-
-strucpp[6]> get Counter.count
-  Counter.count : INT = 0
+strucpp[5]> vars Main
+  Main.enable : BOOL = TRUE
+  Main.count  : INT = 5
 ```
 
-REPL commands:
+---
 
-| Command | Description |
-|---------|-------------|
-| `run [N]` | Execute N cycles (default 1) |
-| `step` | Execute one cycle |
-| `vars <program>` | List variables with current values |
-| `get <program>.<var>` | Get variable value |
-| `set <program>.<var> <value>` | Set variable value |
-| `force <program>.<var> <value>` | Force variable (overrides normal execution) |
-| `unforce <program>.<var>` | Remove forcing |
-| `programs` | List program instances |
-| `code [line] [end]` | Show ST/C++ source side-by-side |
-| `watch <program>.<var>` | Add variable to watch list |
-| `dashboard` | Show overview with variables and source |
+## Unit Testing ([full guide](docs/TESTING.md))
 
-### Unit Testing
-
-STruC++ includes an IEC 61131-3 testing framework. Write test files using `TEST` blocks with assertions:
+Write test files in Structured Text using `TEST` blocks with assertions. No need for IDE plugins, no PLC hardware required:
 
 **Source** (`adder.st`):
 
 ```iecst
 FUNCTION_BLOCK Adder
-  VAR_INPUT a : INT; b : INT; END_VAR
+  VAR_INPUT a, b : INT; END_VAR
   VAR_OUTPUT sum : INT; END_VAR
   sum := a + b;
 END_FUNCTION_BLOCK
@@ -206,107 +107,173 @@ TEST 'Addition works'
   ASSERT_EQ(uut.sum, 10);
 END_TEST
 
-TEST 'Addition with negatives'
-  VAR uut : Adder; END_VAR
-  uut(a := -5, b := 3);
-  ASSERT_EQ(uut.sum, -2);
+TEST 'Timer reaches preset'
+  VAR t : TON; END_VAR
+  t(IN := TRUE, PT := T#100ms);
+  ADVANCE_TIME(T#100ms);
+  t(IN := TRUE, PT := T#100ms);
+  ASSERT_TRUE(t.Q);
 END_TEST
 ```
 
-Run tests:
+The framework supports `SETUP`/`TEARDOWN` blocks, `MOCK`/`MOCK_FUNCTION` for dependency isolation, `MOCK_VERIFY_CALLED`/`MOCK_VERIFY_CALL_COUNT` for interaction verification, and `ADVANCE_TIME` for timer and scheduling tests.
 
-```bash
-npx strucpp adder.st --test test_adder.st
+Assertions: `ASSERT_EQ`, `ASSERT_NEQ`, `ASSERT_TRUE`, `ASSERT_FALSE`, `ASSERT_GT`, `ASSERT_LT`, `ASSERT_GE`, `ASSERT_LE`, `ASSERT_NEAR`.
+
+---
+
+## Code Generation Example
+
+**Input** (`counter.st`):
+
+```iecst
+FUNCTION_BLOCK Counter
+  VAR_INPUT
+    enable : BOOL;
+    reset  : BOOL;
+  END_VAR
+  VAR_OUTPUT
+    count : INT;
+  END_VAR
+
+  IF reset THEN
+    count := 0;
+  ELSIF enable THEN
+    count := count + 1;
+  END_IF;
+END_FUNCTION_BLOCK
 ```
 
+**Generated C++ header:**
+
+```cpp
+namespace strucpp {
+
+class Counter {
+public:
+    IEC_BOOL enable;
+    IEC_BOOL reset;
+    IEC_INT count;
+
+    Counter();
+    void operator()();
+    virtual ~Counter() = default;
+};
+
+}  // namespace strucpp
 ```
-STruC++ Test Runner v1.0
 
-test_adder.st
-  [PASS] Addition works
-  [PASS] Addition with negatives
+**Generated C++ implementation:**
 
------------------------------------------
-2 tests, 2 passed, 0 failed
+```cpp
+namespace strucpp {
+
+Counter::Counter() { /* variable initialization */ }
+
+void Counter::operator()() {
+    if (reset) {
+        count = 0;
+    } else if (enable) {
+        count = count + 1;
+    }
+}
+
+}  // namespace strucpp
 ```
 
-Available assertions: `ASSERT_EQ`, `ASSERT_NEQ`, `ASSERT_TRUE`, `ASSERT_FALSE`, `ASSERT_GT`, `ASSERT_LT`, `ASSERT_GE`, `ASSERT_LE`, `ASSERT_NEAR`.
+---
 
-The testing framework also supports `SETUP`/`TEARDOWN` blocks, `MOCK`/`MOCK_FUNCTION` for dependency isolation, and `MOCK_VERIFY_CALLED`/`MOCK_VERIFY_CALL_COUNT` for interaction verification.
+## Language Support
 
-### Programmatic API
+STruC++ implements a broad subset of IEC 61131-3 Edition 3 plus common CODESYS extensions:
 
-STruC++ can be used as a JavaScript library, making it suitable for embedding in browser-based IDEs and web applications:
+| Category               | Features                                                                                                                                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Data types**         | BOOL, BYTE/WORD/DWORD/LWORD, SINT/INT/DINT/LINT, USINT/UINT/UDINT/ULINT, REAL/LREAL, STRING/WSTRING, TIME/DATE/DT/TOD (+ L-variants), arrays (1D/2D/3D/VLA), structs, enums, subranges |
+| **POUs**               | PROGRAM, FUNCTION, FUNCTION_BLOCK, INTERFACE                                                                                                                                           |
+| **Variables**          | VAR, VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, VAR_EXTERNAL, VAR_GLOBAL, CONSTANT, RETAIN, AT (located)                                                                                       |
+| **Control flow**       | IF/ELSIF/ELSE, CASE, FOR, WHILE, REPEAT, EXIT, RETURN                                                                                                                                  |
+| **OOP**                | Methods, properties (GET/SET), inheritance (EXTENDS), interfaces (IMPLEMENTS), ABSTRACT, FINAL, OVERRIDE, access modifiers                                                             |
+| **Pointers**           | POINTER TO, REF_TO, REFERENCE_TO, ADR, `^` dereference, `__NEW`/`__DELETE`                                                                                                             |
+| **Standard functions** | 80+ functions: math, trig, string, selection, comparison, bitwise, type conversion                                                                                                     |
+| **Standard FBs**       | TON, TOF, TP, CTU, CTD, CTUD, R_TRIG, F_TRIG, SR, RS (compiled ST library)                                                                                                             |
+| **Project model**      | CONFIGURATION, RESOURCE, TASK, program scheduling                                                                                                                                      |
+
+See [IEC Compliance](docs/IEC_COMPLIANCE.md) for the full feature matrix.
+
+---
+
+## Programmatic API
+
+STruC++ can also be used as a JavaScript/TypeScript library for embedding in browser-based IDEs and web applications:
 
 ```javascript
-import { compile } from 'strucpp';
+import { compile } from "strucpp";
 
-const source = `
-FUNCTION_BLOCK Counter
-  VAR_INPUT enable : BOOL; END_VAR
-  VAR_OUTPUT count : INT; END_VAR
-  IF enable THEN count := count + 1; END_IF;
-END_FUNCTION_BLOCK
-`;
+const result = compile(`
+  FUNCTION_BLOCK Counter
+    VAR_INPUT enable : BOOL; END_VAR
+    VAR_OUTPUT count : INT; END_VAR
+    IF enable THEN count := count + 1; END_IF;
+  END_FUNCTION_BLOCK
+`);
 
-const result = compile(source);
-// result.success    - whether compilation succeeded
-// result.cppCode    - C++ implementation
-// result.headerCode - C++ header
-// result.errors     - compilation errors (if any)
+// result.success, result.cppCode, result.headerCode, result.errors
 ```
 
 The compiler has zero native dependencies and runs in any JavaScript environment (Node.js, browsers, Deno, Bun).
 
-## Compiler Options
+---
 
-```
-strucpp <input.st> [input2.st ...] -o <output.cpp> [options]
-```
+## Building from Source
 
-| Flag | Description |
-|------|-------------|
-| `-o, --output` | Output file path |
-| `-d, --debug` | Enable debug information |
-| `--line-directives` | Include `#line` directives in output |
-| `--source-comments` | Include ST source as comments |
-| `-O, --optimize <level>` | Optimization level (0, 1, 2) |
-| `-L, --lib-path <path>` | Library search path (repeatable) |
-| `--build` | Build interactive REPL binary |
-| `--test <test.st> [...]` | Run test files against source |
-| `--compile-lib` | Package source as reusable library |
-| `--lib-name <name>` | Library name (required with `--compile-lib`) |
-| `--gpp <path>` | Custom g++ path (for `--build`/`--test`) |
-| `--cxx-flags <flags>` | Extra C++ compiler flags |
-
-## Language Support
-
-STruC++ supports a broad subset of IEC 61131-3 Edition 3 Structured Text:
-
-- **Data types**: BOOL, INT/DINT/LINT, REAL/LREAL, BYTE/WORD/DWORD, STRING, TIME, arrays, structs, enumerations, subranges
-- **Control flow**: IF/ELSIF/ELSE, CASE, FOR, WHILE, REPEAT, EXIT, RETURN
-- **POUs**: PROGRAM, FUNCTION, FUNCTION_BLOCK with VAR/VAR_INPUT/VAR_OUTPUT/VAR_IN_OUT/VAR_EXTERNAL
-- **OOP**: Methods, interfaces, inheritance (EXTENDS/IMPLEMENTS), properties, FINAL/ABSTRACT
-- **References**: REF_TO, REF=, dereference (^)
-- **Project model**: CONFIGURATION, RESOURCE, TASK, program instances, VAR_GLOBAL
-- **Standard library**: All IEC standard functions (ABS, MIN, MAX, type conversions, etc.) and standard FBs (TON, TOF, TP, CTU, CTD, R_TRIG, F_TRIG, SR, RS)
-
-## Development
+Requires Node.js 18+:
 
 ```bash
-npm test                # Run all tests (1160+ tests)
+git clone https://github.com/Autonomy-Logic/STruCpp.git
+cd STruCpp
+npm ci
+npm run build        # Compile TypeScript to dist/
+npm test             # Run all 1400+ tests
+```
+
+Build standalone binaries (no Node.js required to run):
+
+```bash
+npm run build:pkg    # Produces binaries for Linux, macOS, Windows
+```
+
+### Development
+
+```bash
+npm run dev             # Watch mode
 npm run test:coverage   # Coverage report (75% branch minimum)
 npm run lint            # ESLint
 npm run typecheck       # Type-check without emit
-npm run dev             # Watch mode
 ```
+
+---
+
+## Documentation
+
+| Document                                 | Description                                               |
+| ---------------------------------------- | --------------------------------------------------------- |
+| [CLI Reference](docs/CLI.md)             | All compiler modes, flags, and options                    |
+| [Testing Guide](docs/TESTING.md)         | Test syntax, assertions, mocking, time advancement        |
+| [REPL Guide](docs/REPL.md)               | Interactive commands and program debugging                |
+| [Architecture](docs/ARCHITECTURE.md)     | Compiler pipeline, module map, design decisions           |
+| [C++ Runtime](docs/RUNTIME.md)           | Runtime library types, IECVar wrapper, standard functions |
+| [IEC Compliance](docs/IEC_COMPLIANCE.md) | Full feature matrix with implementation status            |
+
+---
 
 ## License
 
-[LGPL-3.0](LICENSE)
+The compiler is licensed under [GPL-3.0](LICENSE). The C++ runtime and standard libraries use GPL-3.0 with the [STruC++ Runtime Library Exception](COPYING.RUNTIME), allowing you to distribute compiled programs under any license. See [COPYING](COPYING) for details.
 
 ## Acknowledgments
 
-- [MatIEC](https://github.com/beremiz/matiec) - The original IEC 61131-3 compiler that inspired this project
-- [OpenPLC Project](https://autonomylogic.com) - For providing the ecosystem and use case
-- [Chevrotain](https://chevrotain.io) - Parser framework used for lexing and parsing
+- [OpenPLC Project](https://autonomylogic.com) -- The ecosystem that motivated this compiler
+- [MatIEC](https://github.com/beremiz/matiec) -- The original IEC 61131-3 compiler
+- [Chevrotain](https://chevrotain.io) -- Parser framework
+- [isocline](https://github.com/daanx/isocline) -- REPL line editor (MIT)
