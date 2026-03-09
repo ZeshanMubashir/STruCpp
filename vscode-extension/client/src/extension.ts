@@ -8,6 +8,7 @@
 
 import * as path from "node:path";
 import * as fs from "node:fs";
+import * as vscode from "vscode";
 import { ExtensionContext, tasks, workspace } from "vscode";
 import {
   LanguageClient,
@@ -17,6 +18,8 @@ import {
 } from "vscode-languageclient/node.js";
 import { registerCommands } from "./commands.js";
 import { StrucppTaskProvider } from "./task-provider.js";
+import { StlibExplorer, STLIB_URI_SCHEME } from "./stlib-explorer.js";
+import { LibrariesChangedNotification } from "../../shared/protocol.js";
 
 let client: LanguageClient | undefined;
 
@@ -42,7 +45,10 @@ export function activate(context: ExtensionContext): void {
   };
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: "file", language: "structured-text" }],
+    documentSelector: [
+      { scheme: "file", language: "structured-text" },
+      { scheme: "strucpp-lib", language: "structured-text" },
+    ],
     synchronize: {
       fileEvents: workspace.createFileSystemWatcher("**/*.{st,iecst,ST}"),
       configurationSection: "strucpp",
@@ -58,6 +64,17 @@ export function activate(context: ExtensionContext): void {
 
   client.start().then(() => {
     registerCommands(context, client!);
+
+    // Library explorer: tree view + virtual document provider
+    const explorer = new StlibExplorer(client!);
+    context.subscriptions.push(
+      vscode.window.registerTreeDataProvider("strucpp.libraryExplorer", explorer),
+      vscode.workspace.registerTextDocumentContentProvider(STLIB_URI_SCHEME, explorer),
+      vscode.commands.registerCommand("strucpp.refreshLibraries", () => explorer.refresh()),
+      explorer,
+    );
+    client!.onNotification(LibrariesChangedNotification, () => explorer.refresh());
+    explorer.refresh();
   });
 
   // Register task provider

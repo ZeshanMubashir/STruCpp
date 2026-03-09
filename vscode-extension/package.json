@@ -70,8 +70,22 @@
         "title": "STruC++: Compile Library (.stlib)",
         "icon": "$(package)",
         "enablement": "editorLangId == structured-text"
+      },
+      {
+        "command": "strucpp.refreshLibraries",
+        "title": "STruC++: Refresh Libraries",
+        "icon": "$(refresh)"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "strucpp.libraryExplorer",
+          "name": "STruC++ Libraries",
+          "when": "workspaceFolderCount > 0"
+        }
+      ]
+    },
     "menus": {
       "editor/title/run": [
         {
@@ -89,6 +103,13 @@
           "group": "navigation@3",
           "when": "editorLangId == structured-text"
         }
+      ],
+      "view/title": [
+        {
+          "command": "strucpp.refreshLibraries",
+          "when": "view == strucpp.libraryExplorer",
+          "group": "navigation"
+        }
       ]
     },
     "configuration": {
@@ -103,7 +124,7 @@
         "strucpp.autoDiscoverLibraries": {
           "type": "boolean",
           "default": true,
-          "description": "Auto-discover .stlib files in workspace libs/, libraries/, and .stlibs/ directories"
+          "description": "Auto-discover .stlib files anywhere in the workspace"
         },
         "strucpp.outputDirectory": {
           "type": "string",

@@ -4,7 +4,7 @@
  * Shared LSP protocol types for STruC++ extension client ↔ server communication.
  */
 
-import { RequestType } from "vscode-languageserver/node.js";
+import { RequestType, RequestType0, NotificationType0 } from "vscode-languageserver/node.js";
 
 // ---------------------------------------------------------------------------
 // strucpp/compile
@@ -105,3 +105,48 @@ export const CompileLibRequest = new RequestType<
   CompileLibResponse,
   void
 >("strucpp/compileLib");
+
+// ---------------------------------------------------------------------------
+// strucpp/getLibraries — list loaded library archives for explorer
+// ---------------------------------------------------------------------------
+
+export interface LibraryArchiveInfo {
+  filePath: string;
+  archive: {
+    manifest: {
+      name: string;
+      version: string;
+      description?: string;
+      namespace: string;
+      functions: Array<{
+        name: string;
+        returnType: string;
+        parameters: Array<{ name: string; type: string; direction: string }>;
+      }>;
+      functionBlocks: Array<{
+        name: string;
+        inputs: Array<{ name: string; type: string }>;
+        outputs: Array<{ name: string; type: string }>;
+        inouts: Array<{ name: string; type: string }>;
+      }>;
+      types: Array<{
+        name: string;
+        kind: string;
+        baseType?: string;
+      }>;
+    };
+    headerCode: string;
+    cppCode: string;
+    sources?: Array<{ fileName: string; source: string }>;
+    dependencies: Array<{ name: string; version: string }>;
+  };
+}
+
+export const GetLibrariesRequest = new RequestType0<
+  LibraryArchiveInfo[],
+  void
+>("strucpp/getLibraries");
+
+export const LibrariesChangedNotification = new NotificationType0(
+  "strucpp/librariesChanged",
+);

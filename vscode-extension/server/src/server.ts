@@ -26,10 +26,13 @@ import {
   BuildRequest,
   CompileLibRequest,
   GetSettingsRequest,
+  GetLibrariesRequest,
+  LibrariesChangedNotification,
   type ExtensionSettings,
   type CompileResponse,
   type BuildResponse,
   type CompileLibResponse,
+  type LibraryArchiveInfo,
 } from "../../shared/protocol.js";
 import { DocumentManager } from "./document-manager.js";
 import { toLspDiagnostics } from "./diagnostics.js";
@@ -129,6 +132,33 @@ function updateLibraryPaths(): void {
   }
 
   docManager.setLibraryPaths(merged);
+  cacheLibraryArchives(merged);
+}
+
+/**
+ * Load library archives and cache them in the document manager.
+ * Enables LSP features (hover, go-to-definition) on strucpp-lib: virtual documents
+ * and provides dependency archives for library source analysis.
+ */
+function cacheLibraryArchives(libDirs: string[]): void {
+  docManager.clearLibraryArchiveCache();
+  for (const libDir of libDirs) {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(libDir);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith(".stlib")) continue;
+      try {
+        const archive = loadStlibFromFile(path.join(libDir, entry));
+        docManager.setLibraryArchiveCache(archive.manifest.name, archive);
+      } catch {
+        // Skip invalid archives
+      }
+    }
+  }
 }
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
@@ -214,6 +244,7 @@ connection.onNotification("workspace/didChangeWorkspaceFolders", (params) => {
   }
   docManager.addWorkspaceFolders(addedPaths);
   docManager.removeWorkspaceFolders(removedPaths);
+  connection.sendNotification(LibrariesChangedNotification);
 
   // Re-analyze all open documents with new workspace context
   const results = docManager.reanalyzeAll();
@@ -232,6 +263,7 @@ connection.onDidChangeWatchedFiles((change) => {
   );
   if (hasStlibChange) {
     updateLibraryPaths();
+    connection.sendNotification(LibrariesChangedNotification);
   }
 
   const results = docManager.reanalyzeAll();
@@ -244,6 +276,7 @@ connection.onDidChangeWatchedFiles((change) => {
 connection.onDidChangeConfiguration(async () => {
   await fetchSettings();
   updateLibraryPaths();
+  connection.sendNotification(LibrariesChangedNotification);
 
   const results = docManager.reanalyzeAll();
   for (const [uri, result] of results) {
@@ -255,6 +288,9 @@ connection.onInitialized(async () => {
   // Fetch settings from the client and configure library paths
   await fetchSettings();
   updateLibraryPaths();
+
+  // Notify client that libraries are ready (client.start() resolves before this)
+  connection.sendNotification(LibrariesChangedNotification);
 
   // Register for file watching after initialization (ST files + stlib files)
   void connection.client.register(DidChangeWatchedFilesNotification.type, {
@@ -344,6 +380,7 @@ connection.onDefinition((params) => {
     column,
     params.textDocument.uri,
     (fn) => docManager.resolveFileNameToUri(fn),
+    (name) => docManager.findSymbolInLibrarySources(name),
   );
 });
 
@@ -359,6 +396,7 @@ connection.onTypeDefinition((params) => {
     column,
     params.textDocument.uri,
     (fn) => docManager.resolveFileNameToUri(fn),
+    (name) => docManager.findSymbolInLibrarySources(name),
   );
 });
 
@@ -723,6 +761,36 @@ connection.onRequest(CompileLibRequest, (params): CompileLibResponse => {
     warnings: [],
     libName,
   };
+});
+
+connection.onRequest(GetLibrariesRequest, (): LibraryArchiveInfo[] => {
+  const results: LibraryArchiveInfo[] = [];
+  const seen = new Set<string>();
+
+  for (const libDir of docManager.getLibraryPaths()) {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(libDir);
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.endsWith(".stlib")) continue;
+      const filePath = path.join(libDir, entry);
+      try {
+        const archive = loadStlibFromFile(filePath);
+        const key = `${archive.manifest.name}@${archive.manifest.version}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        results.push({ filePath, archive });
+      } catch {
+        // Skip invalid archives
+      }
+    }
+  }
+
+  return results;
 });
 
 function publishDiagnostics(
