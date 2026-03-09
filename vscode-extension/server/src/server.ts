@@ -63,6 +63,7 @@ const DEFAULT_SETTINGS: ExtensionSettings = {
   globalConstants: {},
   autoAnalyze: true,
   analyzeDelay: 400,
+  formatOnSave: false,
 };
 
 let currentSettings: ExtensionSettings = { ...DEFAULT_SETTINGS };
@@ -89,6 +90,7 @@ async function fetchSettings(): Promise<void> {
         globalConstants: config.globalConstants ?? DEFAULT_SETTINGS.globalConstants,
         autoAnalyze: config.autoAnalyze ?? DEFAULT_SETTINGS.autoAnalyze,
         analyzeDelay: config.analyzeDelay ?? DEFAULT_SETTINGS.analyzeDelay,
+        formatOnSave: config.formatOnSave ?? DEFAULT_SETTINGS.formatOnSave,
       };
       analysisDebounceMs = currentSettings.analyzeDelay;
     }

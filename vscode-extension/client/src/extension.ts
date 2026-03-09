@@ -22,6 +22,17 @@ import { StlibExplorer, STLIB_URI_SCHEME } from "./stlib-explorer.js";
 import { LibrariesChangedNotification } from "../../shared/protocol.js";
 
 let client: LanguageClient | undefined;
+let statusBarItem: vscode.StatusBarItem;
+
+function updateStatusBar(item: vscode.StatusBarItem, explorer: StlibExplorer): void {
+  const count = explorer.libraryCount;
+  if (count > 0) {
+    item.text = `$(package) STruC++ | ${count} lib${count !== 1 ? "s" : ""}`;
+    item.show();
+  } else {
+    item.hide();
+  }
+}
 
 export function activate(context: ExtensionContext): void {
   // Prefer bundled server (esbuild output), fall back to tsc output
@@ -55,6 +66,12 @@ export function activate(context: ExtensionContext): void {
     },
   };
 
+  // Status bar: library count indicator
+  statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 0);
+  statusBarItem.tooltip = "STruC++ loaded libraries";
+  statusBarItem.command = "strucpp.refreshLibraries";
+  context.subscriptions.push(statusBarItem);
+
   client = new LanguageClient(
     "strucpp",
     "STruC++ Language Server",
@@ -70,11 +87,34 @@ export function activate(context: ExtensionContext): void {
     context.subscriptions.push(
       vscode.window.registerTreeDataProvider("strucpp.libraryExplorer", explorer),
       vscode.workspace.registerTextDocumentContentProvider(STLIB_URI_SCHEME, explorer),
-      vscode.commands.registerCommand("strucpp.refreshLibraries", () => explorer.refresh()),
+      vscode.commands.registerCommand("strucpp.refreshLibraries", async () => {
+        await explorer.refresh();
+        updateStatusBar(statusBarItem, explorer);
+      }),
       explorer,
     );
-    client!.onNotification(LibrariesChangedNotification, () => explorer.refresh());
-    explorer.refresh();
+    client!.onNotification(LibrariesChangedNotification, async () => {
+      await explorer.refresh();
+      updateStatusBar(statusBarItem, explorer);
+    });
+    explorer.refresh().then(() => updateStatusBar(statusBarItem, explorer));
+
+    // Format on save: trigger document formatting when strucpp.formatOnSave is enabled
+    context.subscriptions.push(
+      vscode.workspace.onWillSaveTextDocument((e) => {
+        if (e.document.languageId !== "structured-text") return;
+        if (e.document.uri.scheme !== "file") return;
+        const config = vscode.workspace.getConfiguration("strucpp");
+        if (!config.get<boolean>("formatOnSave", false)) return;
+        e.waitUntil(
+          vscode.commands.executeCommand<vscode.TextEdit[]>(
+            "vscode.executeFormatDocumentProvider",
+            e.document.uri,
+            { tabSize: 2, insertSpaces: true } as vscode.FormattingOptions,
+          ).then((edits) => edits ?? []),
+        );
+      }),
+    );
   });
 
   // Register task provider

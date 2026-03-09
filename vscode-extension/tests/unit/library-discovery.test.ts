@@ -93,6 +93,132 @@ describe("library path merging", () => {
   });
 });
 
+describe("findSymbolInLibrarySources", () => {
+  it("finds a FUNCTION_BLOCK declaration in library sources", () => {
+    const docManager = new DocumentManager(analyze);
+    docManager.setLibraryArchiveCache("mylib", {
+      formatVersion: 1,
+      manifest: {
+        name: "mylib",
+        version: "1.0.0",
+        namespace: "mylib",
+        functions: [],
+        functionBlocks: [{ name: "MyFB", inputs: [], outputs: [], inouts: [] }],
+        types: [],
+      },
+      headerCode: "",
+      cppCode: "",
+      sources: [
+        { fileName: "MyFB.st", source: "FUNCTION_BLOCK MyFB\nEND_FUNCTION_BLOCK" },
+        { fileName: "Other.st", source: "FUNCTION_BLOCK Other\nEND_FUNCTION_BLOCK" },
+      ],
+      dependencies: [],
+    } as any);
+
+    const result = docManager.findSymbolInLibrarySources("MyFB");
+    expect(result).not.toBeUndefined();
+    expect(result!.uri).toBe("strucpp-lib:/mylib/sources/MyFB.st");
+    expect(result!.line).toBe(0);
+  });
+
+  it("finds a FUNCTION declaration", () => {
+    const docManager = new DocumentManager(analyze);
+    docManager.setLibraryArchiveCache("mathlib", {
+      formatVersion: 1,
+      manifest: {
+        name: "mathlib",
+        version: "1.0.0",
+        namespace: "mathlib",
+        functions: [],
+        functionBlocks: [],
+        types: [],
+      },
+      headerCode: "",
+      cppCode: "",
+      sources: [
+        { fileName: "utils.st", source: "// helpers\nFUNCTION Distance : REAL\nEND_FUNCTION" },
+      ],
+      dependencies: [],
+    } as any);
+
+    const result = docManager.findSymbolInLibrarySources("Distance");
+    expect(result).not.toBeUndefined();
+    expect(result!.uri).toBe("strucpp-lib:/mathlib/sources/utils.st");
+    expect(result!.line).toBe(1);
+  });
+
+  it("returns undefined for symbols not in any library", () => {
+    const docManager = new DocumentManager(analyze);
+    const result = docManager.findSymbolInLibrarySources("NonExistent");
+    expect(result).toBeUndefined();
+  });
+
+  it("is case-insensitive for keyword matching", () => {
+    const docManager = new DocumentManager(analyze);
+    docManager.setLibraryArchiveCache("lib", {
+      formatVersion: 1,
+      manifest: { name: "lib", version: "1.0.0", namespace: "lib", functions: [], functionBlocks: [], types: [] },
+      headerCode: "",
+      cppCode: "",
+      sources: [
+        { fileName: "timer.st", source: "function_block TON_X\nEND_FUNCTION_BLOCK" },
+      ],
+      dependencies: [],
+    } as any);
+
+    const result = docManager.findSymbolInLibrarySources("TON_X");
+    expect(result).not.toBeUndefined();
+    expect(result!.uri).toBe("strucpp-lib:/lib/sources/timer.st");
+  });
+});
+
+describe("resolveFileNameToUri with library sources", () => {
+  it("resolves bare fileName to strucpp-lib: URI", () => {
+    const docManager = new DocumentManager(analyze);
+    docManager.setLibraryArchiveCache("mylib", {
+      formatVersion: 1,
+      manifest: { name: "mylib", version: "1.0.0", namespace: "mylib", functions: [], functionBlocks: [], types: [] },
+      headerCode: "",
+      cppCode: "",
+      sources: [
+        { fileName: "TrafficLight.st", source: "FUNCTION_BLOCK TrafficLight\nEND_FUNCTION_BLOCK" },
+      ],
+      dependencies: [],
+    } as any);
+
+    const uri = docManager.resolveFileNameToUri("TrafficLight.st");
+    expect(uri).toBe("strucpp-lib:/mylib/sources/TrafficLight.st");
+  });
+
+  it("returns undefined for unknown file names", () => {
+    const docManager = new DocumentManager(analyze);
+    const uri = docManager.resolveFileNameToUri("Unknown.st");
+    expect(uri).toBeUndefined();
+  });
+});
+
+describe("clearLibraryArchiveCache", () => {
+  it("clears all cached library data", () => {
+    const docManager = new DocumentManager(analyze);
+    docManager.setLibraryArchiveCache("lib", {
+      formatVersion: 1,
+      manifest: { name: "lib", version: "1.0.0", namespace: "lib", functions: [], functionBlocks: [], types: [] },
+      headerCode: "",
+      cppCode: "",
+      sources: [{ fileName: "a.st", source: "PROGRAM A END_PROGRAM" }],
+      dependencies: [],
+    } as any);
+
+    expect(docManager.findSymbolInLibrarySources("A")).not.toBeUndefined();
+    expect(docManager.resolveFileNameToUri("a.st")).toBeDefined();
+
+    docManager.clearLibraryArchiveCache();
+
+    expect(docManager.findSymbolInLibrarySources("A")).toBeUndefined();
+    expect(docManager.resolveFileNameToUri("a.st")).toBeUndefined();
+  });
+});
+
 describe("buildWorkspaceSources", () => {
   let tempDir: string;
   let docManager: DocumentManager;

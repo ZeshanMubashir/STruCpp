@@ -75,6 +75,7 @@ export interface ExtensionSettings {
   globalConstants: Record<string, number>;
   autoAnalyze: boolean;
   analyzeDelay: number;
+  formatOnSave: boolean;
 }
 
 export const GetSettingsRequest = new RequestType<

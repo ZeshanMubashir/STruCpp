@@ -66,6 +66,11 @@ export class StlibExplorer
   private _onDidChange = new vscode.EventEmitter<vscode.Uri>();
   readonly onDidChange = this._onDidChange.event;
 
+  /** Number of loaded library archives. */
+  get libraryCount(): number {
+    return this.archives.length;
+  }
+
   constructor(private client: LanguageClient) {}
 
   async refresh(): Promise<void> {
