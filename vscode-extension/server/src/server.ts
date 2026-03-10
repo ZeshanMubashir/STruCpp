@@ -805,15 +805,20 @@ connection.onRequest(RunTestsRequest, (params: RunTestsParams): RunTestsResponse
   const testFilePath = URI.parse(testUri).fsPath;
   const testFileName = path.basename(testFilePath);
 
-  // 1. Read test file source
+  // 1. Read test file source (prefer live editor buffer over disk)
   let testSource: string;
-  try {
-    testSource = fs.readFileSync(testFilePath, "utf-8");
-  } catch {
-    return {
-      success: false,
-      errors: [{ message: `Cannot read test file: ${testFilePath}`, line: 0, column: 0, severity: "error" }],
-    };
+  const liveTestDoc = textDocuments.get(testUri);
+  if (liveTestDoc) {
+    testSource = liveTestDoc.getText();
+  } else {
+    try {
+      testSource = fs.readFileSync(testFilePath, "utf-8");
+    } catch {
+      return {
+        success: false,
+        errors: [{ message: `Cannot read test file: ${testFilePath}`, line: 0, column: 0, severity: "error" }],
+      };
+    }
   }
 
   // 2. Gather workspace sources (all non-test .st files)
