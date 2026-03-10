@@ -120,8 +120,8 @@ describe("Test Main Generator", () => {
       expect(code).toContain('"Counter increments"');
       // Should register the test
       expect(code).toContain("runner.add");
-      // Should have main()
-      expect(code).toContain("int main()");
+      // Should have main() with argc/argv for --json support
+      expect(code).toContain("int main(int argc, char* argv[])");
       // Should call runner.run()
       expect(code).toContain("runner.run()");
     });
@@ -581,6 +581,48 @@ describe("Test Main Generator", () => {
       });
 
       expect(code).toContain("return runner.run();");
+    });
+  });
+
+  describe("JSON output support", () => {
+    it("should generate --json flag parsing in main()", () => {
+      const testFile = makeTestFile("test.st", [
+        {
+          name: "json test",
+          varBlocks: [],
+          body: [
+            {
+              kind: "AssertCall",
+              assertType: "ASSERT_TRUE",
+              args: [
+                {
+                  kind: "LiteralExpression",
+                  literalType: "BOOL",
+                  value: true,
+                  rawValue: "TRUE",
+                  sourceSpan: { ...span, startLine: 2 },
+                },
+              ],
+              sourceSpan: { ...span, startLine: 2 },
+            },
+          ],
+          sourceSpan: span,
+        },
+      ]);
+
+      const code = generateTestMain([testFile], {
+        headerFileName: "generated.hpp",
+        pous: [],
+      });
+
+      // main() should accept argc/argv for flag parsing
+      expect(code).toContain("int main(int argc, char* argv[])");
+      // Should check for --json flag
+      expect(code).toContain("--json");
+      // Should declare json_mode variable
+      expect(code).toContain("json_mode");
+      // Should call set_json_mode when flag is found
+      expect(code).toContain("set_json_mode");
     });
   });
 });

@@ -16,6 +16,8 @@ import type {
   CompileOptions,
   StlibArchive,
 } from "strucpp";
+import { parseTestFile, analyzeTestFile } from "strucpp";
+import { isTestFile } from "../../shared/test-utils.js";
 
 export interface DocumentState {
   uri: string;
@@ -419,7 +421,46 @@ export class DocumentManager {
       ...libraryOption,
     };
 
-    state.analysisResult = this.analyzeFn(state.source, options);
+    // Test files use TEST/END_TEST syntax that the standard parser doesn't
+    // understand. Analyze with empty primary source so we still get symbol
+    // tables from workspace sources (for completions/hover of user types)
+    // without emitting parser errors for test syntax. The hover and
+    // completion providers handle test files via text-based word extraction.
+    if (isTestFile(state.source)) {
+      state.analysisResult = this.analyzeFn("", options);
+
+      // Parse the test file and run semantic validation (assert arg counts,
+      // mock targets, type refs, undeclared vars) to surface diagnostics
+      if (state.analysisResult?.symbolTables) {
+        const parseResult = parseTestFile(state.source, currentFileName);
+        if (parseResult.errors.length > 0) {
+          state.analysisResult.errors = [
+            ...state.analysisResult.errors,
+            ...parseResult.errors.map((e) => ({
+              message: (e as { message?: string }).message ?? String(e),
+              line: (e as { token?: { startLine?: number } }).token?.startLine ?? 1,
+              column: (e as { token?: { startColumn?: number } }).token?.startColumn ?? 1,
+              severity: "error" as const,
+            })),
+          ];
+        } else if (parseResult.testFile) {
+          const testDiags = analyzeTestFile(
+            parseResult.testFile,
+            state.analysisResult.symbolTables,
+          );
+          state.analysisResult.errors = [
+            ...state.analysisResult.errors,
+            ...testDiags.errors,
+          ];
+          state.analysisResult.warnings = [
+            ...state.analysisResult.warnings,
+            ...testDiags.warnings,
+          ];
+        }
+      }
+    } else {
+      state.analysisResult = this.analyzeFn(state.source, options);
+    }
 
     // Rebuild the workspace-wide case map from all sources we just read.
     // This runs on every analysis (~400ms debounced), reusing the sources
@@ -525,12 +566,3 @@ function addToCaseMap(map: Map<string, string>, source: string): void {
  * Detect whether source content is a test file (uses TEST/END_TEST syntax).
  * Checks if the first non-comment, non-whitespace code token is TEST or SETUP.
  */
-function isTestFile(source: string): boolean {
-  // Strip leading comments and whitespace, then check the first keyword
-  const stripped = source
-    .replace(/^\uFEFF/, "")             // strip UTF-8 BOM
-    .replace(/\/\/.*$/gm, "")           // remove line comments
-    .replace(/\(\*[\s\S]*?\*\)/g, "")   // remove block comments
-    .trimStart();
-  return /^(TEST|SETUP)\b/i.test(stripped);
-}

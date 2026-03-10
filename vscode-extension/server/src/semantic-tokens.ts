@@ -27,6 +27,8 @@ import type {
 } from "strucpp";
 import { walkAST, findEnclosingPOU, ELEMENTARY_TYPES } from "strucpp";
 import { getScopeForContext } from "./resolve-symbol.js";
+import { stripCommentsAndStrings } from "./lsp-utils.js";
+import { extractTestVarDeclarations } from "../../shared/test-utils.js";
 
 // ---------------------------------------------------------------------------
 // Token type & modifier legends (order must match server capabilities)
@@ -398,3 +400,126 @@ function deltaEncode(tokens: RawToken[]): number[] {
 
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// Text-based semantic tokens for test files
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute semantic tokens for test files using text-based scanning.
+ * Since test files (TEST/END_TEST syntax) aren't parsed by the standard
+ * parser, we scan identifiers in the source and classify them using the
+ * symbol tables built from workspace sources.
+ */
+export function getTestFileSemanticTokens(
+  analysis: AnalysisResult,
+  source: string,
+): number[] {
+  const { symbolTables } = analysis;
+  if (!symbolTables) return [];
+
+  const tokens: RawToken[] = [];
+
+  // Strip comments and strings to avoid false matches,
+  // but preserve line/column positions (replaced with spaces).
+  const stripped = stripCommentsAndStrings(source);
+  const lines = stripped.split("\n");
+
+  // Collect locally declared variables from VAR blocks
+  const localVarMap = extractTestVarDeclarations(stripped);
+  const localVars = new Set(localVarMap.keys());
+
+  // Build set of enum member names from type definitions (enum values
+  // may not be in the global scope when primary source is empty).
+  const enumMembers = new Set<string>();
+  if (analysis.ast) {
+    for (const td of analysis.ast.types) {
+      const def = td.definition;
+      if (def?.kind === "EnumDefinition" && def.members) {
+        for (const m of def.members as Array<{ name: string }>) {
+          enumMembers.add(m.name.toUpperCase());
+        }
+      }
+    }
+  }
+
+  const identRegex = /\b([a-zA-Z_]\w*)\b/g;
+
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx];
+    let match;
+    identRegex.lastIndex = 0;
+
+    while ((match = identRegex.exec(line)) !== null) {
+      const name = match[1];
+      const upper = name.toUpperCase();
+      const col = match.index;
+
+      // Check elementary types (INT, REAL, BOOL, etc.)
+      if (upper in ELEMENTARY_TYPES) {
+        tokens.push({
+          line: lineIdx, col, length: name.length,
+          typeIdx: TYPE_IDX.type, modBits: MOD_BIT.defaultLibrary,
+        });
+        continue;
+      }
+
+      // Check user-defined type names (enum, struct)
+      const typeSym = symbolTables.lookupType(upper);
+      if (typeSym) {
+        const def = typeSym.declaration?.definition;
+        const idx = def?.kind === "EnumDefinition" ? TYPE_IDX.enum : TYPE_IDX.type;
+        tokens.push({ line: lineIdx, col, length: name.length, typeIdx: idx, modBits: 0 });
+        continue;
+      }
+
+      // Check function block names
+      if (symbolTables.lookupFunctionBlock(upper)) {
+        tokens.push({
+          line: lineIdx, col, length: name.length,
+          typeIdx: TYPE_IDX.class, modBits: 0,
+        });
+        continue;
+      }
+
+      // Check global scope symbols (functions, enum values, programs)
+      const globalSym = symbolTables.globalScope.lookup(upper);
+      if (globalSym?.kind === "function") {
+        tokens.push({
+          line: lineIdx, col, length: name.length,
+          typeIdx: TYPE_IDX.function, modBits: 0,
+        });
+        continue;
+      }
+      if (globalSym?.kind === "enumValue") {
+        tokens.push({
+          line: lineIdx, col, length: name.length,
+          typeIdx: TYPE_IDX.enumMember, modBits: 0,
+        });
+        continue;
+      }
+
+      // Check enum members from type definitions (may not be in global scope)
+      if (enumMembers.has(upper)) {
+        tokens.push({
+          line: lineIdx, col, length: name.length,
+          typeIdx: TYPE_IDX.enumMember, modBits: 0,
+        });
+        continue;
+      }
+
+      // Check locally declared variables
+      if (localVars.has(upper)) {
+        tokens.push({
+          line: lineIdx, col, length: name.length,
+          typeIdx: TYPE_IDX.variable, modBits: 0,
+        });
+        continue;
+      }
+    }
+  }
+
+  return deltaEncode(tokens);
+}
+
+
