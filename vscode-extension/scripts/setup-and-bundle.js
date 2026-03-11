@@ -36,12 +36,8 @@ if (!fs.existsSync(path.join(repoDir, "node_modules"))) {
   console.log("\n> [strucpp] node_modules exists, skipping npm install");
 }
 
-// 2. Build compiler if needed
-if (!fs.existsSync(path.join(repoDir, "dist", "index.js"))) {
-  run("npm run build", repoDir);
-} else {
-  console.log("> [strucpp] dist/index.js exists, skipping build");
-}
+// 2. Build compiler (tsc is incremental — fast when nothing changed)
+run("npm run build", repoDir);
 
 // 3. Install extension dependencies if needed
 if (!fs.existsSync(path.join(extDir, "node_modules"))) {
