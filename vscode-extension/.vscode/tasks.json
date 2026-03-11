@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "bundle",
+      "group": "build",
+      "label": "npm: bundle",
+      "detail": "TypeScript compile + esbuild bundle",
+      "problemMatcher": ["$tsc"]
+    }
+  ]
+}
