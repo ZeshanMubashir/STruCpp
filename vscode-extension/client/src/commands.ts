@@ -528,7 +528,6 @@ async function launchDebugSession(state: DebugBuildState): Promise<void> {
           + "class IECVarPrinter:\\n"
           + "  def __init__(s,v): s.v=v\\n"
           + "  def to_string(s): return str(s.v['value_'])\\n"
-          + "  def children(s): return iter([])\\n"
           + "iec_re=re.compile(r'^(strucpp::)?(IECVar<|IECStringVar<|IECWStringVar<|IEC_[A-Z][A-Z])')\\n"
           + "def iec_lookup(v):\\n"
           + "  if iec_re.match(str(v.type.strip_typedefs())): return IECVarPrinter(v)\\n"

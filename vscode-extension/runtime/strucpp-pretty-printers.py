@@ -34,9 +34,6 @@ class IECVarPrinter:
         except gdb.error:
             return str(self.val)
 
-    def children(self):
-        return iter([])
-
 
 class IECStringPrinter:
     """Pretty-print IEC_STRING<N> and IECStringVar<N> — show as string."""
