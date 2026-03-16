@@ -23,6 +23,7 @@ import {
   getCxxEnv,
   splitCxxFlags,
 } from "strucpp";
+import { buildSetupCommands, buildDebugConfig } from "./debug-config-builder.js";
 
 const outputChannel = vscode.window.createOutputChannel("STruC++");
 
@@ -475,81 +476,15 @@ async function launchDebugSession(state: DebugBuildState): Promise<void> {
     return;
   }
 
-  let debugConfig: vscode.DebugConfiguration;
-
-  if (isMac && hasCodeLLDB) {
-    debugConfig = {
-      type: "lldb",
-      request: "launch",
-      name: "Debug ST Program",
-      program: state.binaryPath,
-      args: ["--cyclic"],
-      cwd: state.outputDir,
-      __strucpp: true,
-      initCommands: [
-        // Python-based type summary: extracts value_ member for IECVar display
-        "script def __iec(v,d): c=v.GetChildMemberWithName('value_'); return c.GetValue() if c.IsValid() else None",
-        'type summary add -x "^(strucpp::)?IECVar<" -F __iec',
-        'type summary add -x "^(strucpp::)?IECStringVar<" -F __iec',
-        'type summary add -x "^(strucpp::)?IECWStringVar<" -F __iec',
-        'type summary add -x "^(strucpp::)?IEC_[A-Z][A-Z]" -F __iec',
-      ],
-    };
-  } else {
-    const setupCommands = [
-      {
-        description: "Enable pretty-printing",
-        text: "-enable-pretty-printing",
-        ignoreFailures: true,
-      },
-    ];
-
-    if (isMac) {
-      // LLDB type summaries via MI interpreter (cppdbg with MIMode: lldb)
-      setupCommands.push(
-        {
-          description: "IECVar type summary",
-          text: '-interpreter-exec console "type summary add -x \\"^(strucpp::)?IECVar<\\" --summary-string \\"${var.value_}\\""',
-          ignoreFailures: true,
-        },
-        {
-          description: "IEC_ typedef type summary",
-          text: '-interpreter-exec console "type summary add -x \\"^(strucpp::)?IEC_[A-Z][A-Z]\\" --summary-string \\"${var.value_}\\""',
-          ignoreFailures: true,
-        },
-      );
-    } else {
-      // GDB pretty-printer for IECVar types (Linux/Windows)
-      setupCommands.push({
-        description: "IECVar GDB pretty-printer",
-        text: '-interpreter-exec console "python\\n'
-          + "import gdb\\n"
-          + "import re\\n"
-          + "class IECVarPrinter:\\n"
-          + "  def __init__(s,v): s.v=v\\n"
-          + "  def to_string(s): return str(s.v['value_'])\\n"
-          + "iec_re=re.compile(r'^(strucpp::)?(IECVar<|IECStringVar<|IECWStringVar<|IEC_[A-Z][A-Z])')\\n"
-          + "def iec_lookup(v):\\n"
-          + "  if iec_re.match(str(v.type.strip_typedefs())): return IECVarPrinter(v)\\n"
-          + "  if iec_re.match(str(v.type)): return IECVarPrinter(v)\\n"
-          + "  return None\\n"
-          + 'gdb.pretty_printers.append(iec_lookup)\\nend"',
-        ignoreFailures: true,
-      });
-    }
-
-    debugConfig = {
-      type: "cppdbg",
-      request: "launch",
-      name: "Debug ST Program",
-      program: state.binaryPath,
-      args: ["--cyclic"],
-      cwd: state.outputDir,
-      __strucpp: true,
-      MIMode: isMac ? "lldb" : "gdb",
-      setupCommands,
-    };
-  }
+  const debugType = isMac && hasCodeLLDB ? "lldb" : "cppdbg";
+  const miMode: "lldb" | "gdb" = isMac ? "lldb" : "gdb";
+  const setupCommands = buildSetupCommands(miMode);
+  const debugConfig = buildDebugConfig(
+    { binaryPath: state.binaryPath, outputDir: state.outputDir },
+    debugType,
+    miMode,
+    setupCommands,
+  );
 
   await vscode.debug.startDebugging(folder, debugConfig);
 }

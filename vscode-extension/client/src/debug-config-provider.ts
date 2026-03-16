@@ -10,7 +10,8 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
 import type { LanguageClient } from "vscode-languageclient/node.js";
-import { debugBuildCommand, getLastDebugBuild } from "./commands.js";
+import { debugBuildCommand } from "./commands.js";
+import { buildSetupCommands, buildDebugConfig } from "./debug-config-builder.js";
 
 /**
  * Provides debug configurations for Structured Text programs.
@@ -64,103 +65,17 @@ export class StrucppDebugConfigProvider
     const isMac = process.platform === "darwin";
     const hasCodeLLDB = vscode.extensions.getExtension("vadimcn.vscode-lldb") != null;
     const debugType = isMac && hasCodeLLDB ? "lldb" : "cppdbg";
-    const miMode = isMac ? "lldb" : "gdb";
+    const miMode: "lldb" | "gdb" = isMac ? "lldb" : "gdb";
+    const prettyPrinterPath = this.findPrettyPrinters();
+    const setupCommands = buildSetupCommands(miMode, prettyPrinterPath);
 
-    // Build pretty-printer setup commands
-    const setupCommands: Array<{ description: string; text: string; ignoreFailures: boolean }> = [];
-
-    if (debugType === "cppdbg") {
-      // GDB/LLDB setup via cppdbg adapter
-      setupCommands.push(
-        {
-          description: "Enable pretty-printing",
-          text: "-enable-pretty-printing",
-          ignoreFailures: true,
-        },
-      );
-
-      // Try to load STruC++ pretty-printers if available
-      const prettyPrinterPath = this.findPrettyPrinters();
-      if (prettyPrinterPath) {
-        setupCommands.push({
-          description: "Load STruC++ pretty-printers",
-          text: `-interpreter-exec console "source ${prettyPrinterPath}"`,
-          ignoreFailures: true,
-        });
-      }
-    }
-
-    // Construct the actual debug config for cppdbg or CodeLLDB
-    if (debugType === "lldb") {
-      return {
-        type: "lldb",
-        request: "launch",
-        name: config.name || "Debug ST Program",
-        program: debugState.binaryPath,
-        args: ["--cyclic"],
-        cwd: debugState.outputDir,
-        __strucpp: true,
-        initCommands: [
-          "script def __iec(v,d): c=v.GetChildMemberWithName('value_'); return c.GetValue() if c.IsValid() else None",
-          'type summary add -x "^(strucpp::)?IECVar<" -F __iec',
-          'type summary add -x "^(strucpp::)?IECStringVar<" -F __iec',
-          'type summary add -x "^(strucpp::)?IECWStringVar<" -F __iec',
-          'type summary add -x "^(strucpp::)?IEC_[A-Z][A-Z]" -F __iec',
-        ],
-        ...(config.env ? { env: config.env } : {}),
-        ...(config.stopOnEntry ? { stopOnEntry: true } : {}),
-      };
-    }
-
-    // Add debugger-specific IECVar formatters
-    if (isMac) {
-      // LLDB type summaries via MI interpreter
-      setupCommands.push(
-        {
-          description: "IECVar type summary",
-          text: '-interpreter-exec console "type summary add -x \\"^(strucpp::)?IECVar<\\" --summary-string \\"${var.value_}\\""',
-          ignoreFailures: true,
-        },
-        {
-          description: "IEC_ typedef type summary",
-          text: '-interpreter-exec console "type summary add -x \\"^(strucpp::)?IEC_[A-Z][A-Z]\\" --summary-string \\"${var.value_}\\""',
-          ignoreFailures: true,
-        },
-      );
-    } else {
-      // GDB pretty-printer for IECVar types (Linux/Windows)
-      setupCommands.push({
-        description: "IECVar GDB pretty-printer",
-        text: '-interpreter-exec console "python\\n'
-          + "import gdb\\n"
-          + "import re\\n"
-          + "class IECVarPrinter:\\n"
-          + "  def __init__(s,v): s.v=v\\n"
-          + "  def to_string(s): return str(s.v['value_'])\\n"
-          + "iec_re=re.compile(r'^(strucpp::)?(IECVar<|IECStringVar<|IECWStringVar<|IEC_[A-Z][A-Z])')\\n"
-          + "def iec_lookup(v):\\n"
-          + "  if iec_re.match(str(v.type.strip_typedefs())): return IECVarPrinter(v)\\n"
-          + "  if iec_re.match(str(v.type)): return IECVarPrinter(v)\\n"
-          + "  return None\\n"
-          + 'gdb.pretty_printers.append(iec_lookup)\\nend"',
-        ignoreFailures: true,
-      });
-    }
-
-    // Default: cppdbg (works with Microsoft C/C++ extension)
-    return {
-      type: "cppdbg",
-      request: "launch",
-      name: config.name || "Debug ST Program",
-      program: debugState.binaryPath,
-      args: ["--cyclic"],
-      cwd: debugState.outputDir,
-      __strucpp: true,
-      MIMode: miMode,
+    return buildDebugConfig(
+      { binaryPath: debugState.binaryPath, outputDir: debugState.outputDir },
+      debugType,
+      miMode,
       setupCommands,
-      ...(config.env ? { environment: Object.entries(config.env).map(([n, v]) => ({ name: n, value: v })) } : {}),
-      ...(config.stopOnEntry ? { stopAtEntry: true } : {}),
-    };
+      { name: config.name, env: config.env, stopOnEntry: config.stopOnEntry },
+    );
   }
 
   /**
@@ -175,7 +90,6 @@ export class StrucppDebugConfigProvider
           "runtime",
           "strucpp-pretty-printers.py",
         );
-        // Will be available after Phase 8.4
         return printerPath;
       }
     } catch {

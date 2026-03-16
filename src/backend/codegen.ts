@@ -445,42 +445,41 @@ export class CodeGenerator {
   }
 
   /**
-   * Register additional FB type names (e.g. from libraries) so that
-   * codegen can distinguish FB invocations from regular function calls.
+   * Register FB type names from libraries so codegen can distinguish
+   * FB invocations from regular function calls. Private — use registerLibraryArchives().
    */
-  registerLibraryFBTypes(
+  private registerLibraryFBTypes(
     fbs: Array<{
       name: string;
-      inputNames?: string[];
-      fields?: Array<{ name: string; type: string }>;
+      inputNames: string[];
+      fields: Array<{ name: string; type: string }>;
     }>,
   ): void {
     for (const fb of fbs) {
       const fbUpper = fb.name.toUpperCase();
       this.knownFBTypes.add(fbUpper);
-      if (fb.inputNames && fb.inputNames.length > 0) {
+      if (fb.inputNames.length > 0) {
         this.fbInputParams.set(
           fbUpper,
           fb.inputNames.map((n) => n.toUpperCase()),
         );
       }
-      // Store field→type mapping for member type resolution (field mangling)
-      if (fb.fields) {
-        for (const f of fb.fields) {
-          this.libraryFBFieldTypes.set(
-            `${fbUpper}.${f.name.toUpperCase()}`,
-            f.type,
-          );
-        }
+      for (const f of fb.fields) {
+        this.libraryFBFieldTypes.set(
+          `${fbUpper}.${f.name.toUpperCase()}`,
+          f.type,
+        );
       }
     }
   }
 
   /**
    * Register type info from library manifests (enum types for :: emission,
-   * struct types for known-type detection).
+   * struct types for known-type detection). Private — use registerLibraryArchives().
    */
-  registerLibraryTypes(types: Array<{ name: string; kind: string }>): void {
+  private registerLibraryTypes(
+    types: Array<{ name: string; kind: string }>,
+  ): void {
     for (const t of types) {
       const nameUpper = t.name.toUpperCase();
       if (t.kind === "enum") {
