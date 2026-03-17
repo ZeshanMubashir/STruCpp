@@ -33,6 +33,8 @@ export interface ResolvedSymbol {
   symbol?: AnySymbol;
   scope: EnclosingScope;
   stdFunction?: StdFunctionDescriptor;
+  /** Set when cursor is on a method name that couldn't be resolved from symbol tables. */
+  methodContext?: { fbName: string; methodName: string };
 }
 
 /** Node kinds we want to resolve symbols for, ordered by specificity. */
@@ -149,6 +151,48 @@ export function resolveSymbolAtPosition(
 
     case "FunctionCallExpression": {
       const fce = node as FunctionCallExpression;
+
+      // Handle dotted names: instance.method() — the parser represents
+      // simple method calls as FunctionCallExpression with dotted functionName
+      const dotIndex = fce.functionName.indexOf(".");
+      if (dotIndex >= 0) {
+        const instanceName = fce.functionName.substring(0, dotIndex);
+        const methodName = fce.functionName.substring(dotIndex + 1);
+        const instanceVar = lookupScope.lookup(instanceName);
+        if (instanceVar) {
+          // Determine if cursor is on instance or method part
+          const dotCol = (node.sourceSpan?.startCol ?? 0) + dotIndex;
+          if (column <= dotCol) {
+            // Cursor is on the instance name
+            return { node, symbol: instanceVar, scope };
+          }
+          // Cursor is on the method name — try to resolve method from FB type
+          if (instanceVar.kind === "variable" && instanceVar.type) {
+            const fbName =
+              instanceVar.type.typeKind === "functionBlock"
+                ? (instanceVar.type as FunctionBlockType).name
+                : undefined;
+            if (fbName) {
+              const fbScope = symbolTables.getFBScope(fbName);
+              const methodSymbol = fbScope?.lookupLocal(methodName);
+              if (methodSymbol) {
+                return { node, symbol: methodSymbol, scope };
+              }
+              // Method not in symbol tables (e.g., library FB) — provide
+              // context so definition.ts can resolve from library sources
+              return {
+                node,
+                symbol: instanceVar,
+                scope,
+                methodContext: { fbName, methodName },
+              };
+            }
+          }
+          // Fall back to the instance variable
+          return { node, symbol: instanceVar, scope };
+        }
+      }
+
       // Try user-defined function first
       const symbol = symbolTables.globalScope.lookup(fce.functionName);
       if (symbol) {

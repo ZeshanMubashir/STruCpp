@@ -50,10 +50,23 @@ export function getDefinition(
     return null;
   }
 
-  const { symbol, stdFunction } = resolved;
+  const { symbol, stdFunction, methodContext } = resolved;
 
   // Standard functions have no source location
   if (stdFunction && !symbol) return null;
+
+  // Method on a library FB — resolve via library sources (e.g., "VehicleDetector.Initialize")
+  if (methodContext && resolveLibrarySymbol) {
+    const result = resolveLibrarySymbol(
+      `${methodContext.fbName}.${methodContext.methodName}`,
+    );
+    if (result) {
+      return Location.create(
+        result.uri,
+        Range.create(result.line, 0, result.line, 0),
+      );
+    }
+  }
 
   if (!symbol) return null;
 
