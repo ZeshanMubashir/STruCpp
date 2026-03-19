@@ -801,9 +801,16 @@ export class TypeChecker {
         const tName = (targetType as ElementaryType).name;
         const vName = (valueType as ElementaryType).name;
 
-        // Skip validation for user-defined type aliases that we can't resolve
-        if (!ELEMENTARY_TYPES[tName] || !ELEMENTARY_TYPES[vName]) {
-          return;
+        // If either side is a FB or struct type, it's definitely incompatible
+        // with a scalar type — fall through to the error report.
+        // Otherwise, skip validation for user-defined type aliases we can't
+        // fully resolve (e.g. MyInt := INT where MyInt is an alias for INT).
+        const tIsFbOrStruct = this.isKnownCompositeType(tName);
+        const vIsFbOrStruct = this.isKnownCompositeType(vName);
+        if (!tIsFbOrStruct && !vIsFbOrStruct) {
+          if (!ELEMENTARY_TYPES[tName] || !ELEMENTARY_TYPES[vName]) {
+            return;
+          }
         }
 
         // Narrowing conversions are warnings, not errors
@@ -841,6 +848,31 @@ export class TypeChecker {
       expr.literalType === "REAL" ||
       expr.literalType === "BOOL"
     );
+  }
+
+  /**
+   * Check if a type name refers to a known function block or struct type.
+   */
+  private isKnownCompositeType(name: string): boolean {
+    if (!this.ast) return false;
+    const upper = name.toUpperCase();
+    if (this.ast.functionBlocks.some((fb) => fb.name.toUpperCase() === upper)) {
+      return true;
+    }
+    if (
+      this.ast.types.some(
+        (td) =>
+          td.name.toUpperCase() === upper &&
+          td.definition.kind === "StructDefinition",
+      )
+    ) {
+      return true;
+    }
+    // Also check library FBs via symbol tables
+    if (this.symbolTables.lookupFunctionBlock(name)) {
+      return true;
+    }
+    return false;
   }
 
   private validateCondition(
